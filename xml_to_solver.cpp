@@ -16,10 +16,6 @@ static int k; // upper-bound for size of abstract sets
 enum typref { POW_INTEGER, INTEGER };
 
 struct Definition;
-struct Set;
-struct PredGroup;
-struct ExpComparison;
-struct UnaryPred;
 
 class Formula {
   std::map<std::string, std::array<int, 2>> sets;    // <"name", {start_var, max_size}>
@@ -41,6 +37,7 @@ public:
   friend struct Set;
   friend struct ExpComparison;
   friend struct UnaryPred;
+  friend struct NaryPred;
 
   int get_next_var () {
     return next_var;
@@ -131,7 +128,7 @@ struct ExpComparison : public PredGroup {
       { return -1; }
 
     ++(formula->predicates);
-    return 0;
+    return formula->predicates;
   }
 };
 
@@ -158,11 +155,54 @@ struct UnaryPred : public PredGroup {
   }
 };
 
+struct NaryPred : public PredGroup {
+  inline int operator () (xml_node predicate, Formula *formula) {
+    if (skip_test (predicate) ||
+	std::ranges::any_of (predicate.children (),
+			     [formula] (xml_node child) 
+			     { return !formula->definition_handlers.contains (child.name ()); }))
+      { return -1; }
+
+    std::vector<int> juncts;
+
+    for (xml_node child : predicate.children ()) {
+      Definition *handler {formula->definition_handlers[child.name ()]};
+      int junct {(*handler) (child, formula)};
+
+      if (junct < 0)
+	{ return -1; }
+      juncts.push_back (junct);
+    }
+
+    int junction_var {(formula->next_var)++};
+    
+    if (std::string {"&"} == predicate.attribute ("op").value ()) {
+      std::ranges::for_each (juncts,
+			     [formula, junction_var] (int v) {
+			       formula->make_clause ({-junction_var, v});
+			       v = -v;
+			     });
+      juncts.push_back (junction_var);
+      formula->make_clause (std::move (juncts));
+    }
+    else { // if .op == "or"
+      std::ranges::for_each (juncts,
+			     [formula, junction_var] (int v)
+			     { formula->make_clause ({-v, junction_var}); });
+      juncts.push_back (-junction_var);
+      formula->make_clause (std::move (juncts));
+    }
+
+    return junction_var;
+  }
+};
+    
 Formula::Formula (int k, std::string cnf_name) 
   : upper_bound {k}, cnf_name {cnf_name} {
   definition_handlers["Set"] = new Set {};
   definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
+  definition_handlers["Nary_Pred"] = new NaryPred {};
 }
 
 Formula::~Formula () {
@@ -183,23 +223,22 @@ void Formula::apply_order_encoding (bool non_empty) {
 }
 
 void Formula::explore_context (xml_node proof_obligations) {
-  std::ranges::for_each (proof_obligations.children (),
-			 [this] (auto definition) {
-			   std::string name {definition.attribute ("name").value ()};
-			   if (std::string {"Define"} == definition.name ()
-			       && (name == "ctx"                                        // CHECK // Different from POGParser
-				   // || name == "ass"                                  // CHECK
-				   || name == "sets"                                    // CHECK
-				   || name.substr (name.length () - 3) == "prp")) {
-			     for (xml_node interior : definition.children ()) {
-			       if (definition_handlers.contains (interior.name ())) {
-				   Definition *handler {definition_handlers[interior.name ()]};
-				   (*handler) (interior, this);
-			       }
-			       else
-				 { std::cout << interior.name () << '\n'; }
-			     }
-			   }});
+  for (xml_node definition : proof_obligations.children ()) {
+    std::string name {definition.attribute ("name").value ()};
+    if (std::string {"Define"} == definition.name ()
+	&& (name == "ctx"                                        // CHECK // Different from POGParser
+	    // || name == "ass"                                  // CHECK
+	    || name == "sets"                                    // CHECK
+	    || name.substr (name.length () - 3) == "prp")) {
+      for (xml_node interior : definition.children ()) {
+	if (definition_handlers.contains (interior.name ())) {
+	  Definition *handler {definition_handlers[interior.name ()]};
+	  (*handler) (interior, this);
+	}
+	else
+	  { std::cout << interior.name () << '\n'; }
+      }
+    }}
 }
 
 void Formula::make_clause (std::vector<int> &&literals) {
