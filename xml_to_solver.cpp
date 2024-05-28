@@ -24,7 +24,6 @@ class Formula {
   int upper_bound;
 
   inline void handle_predicate (xml_node);
-  inline void handle_set (xml_node);
   inline void make_clause (std::vector<int> &&);
   inline void order_encode_range (int, int);
   
@@ -33,6 +32,7 @@ public:
     : upper_bound {k}, cnf_name {cnf_name} {}
   inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
+  friend struct Set;
 
   int get_next_var () {
     return next_var;
@@ -44,6 +44,28 @@ public:
   int predicates {0};
 };
 
+struct Set {
+  void operator () (xml_node set, Formula *formula) {
+    // Only POW (Z)
+    if (set.child ("Id").attribute ("typref").as_int () != 0)
+      { return; }
+  
+    std::string id {set.child ("Id").attribute ("value").value ()};
+
+    int size {formula->upper_bound};
+    if (set.child ("Enumerated_Values")) {
+      size = 0;
+      for (auto el : set.child ("Enumerated_Values").children ())
+	{ ++size; }
+      formula->make_clause ({formula->next_var + size});
+      formula->make_clause ({-(formula->next_var + size - 1)});
+    }
+
+    formula->sets[id] = {formula->next_var, size}; // next_var <=> |set|_{\lte 0}
+    formula->next_var += size + 1;
+  }
+};
+    
 inline bool convexity_constraint (xml_node comparison) {
   if (std::string {"Exp_Comparison"} != comparison.name ()
       || std::string {"="} != comparison.attribute ("op").value ()
@@ -91,8 +113,10 @@ void Formula::explore_context (xml_node proof_obligations) {
 				   || name == "sets"                                    // CHECK
 				   || name.substr (name.length () - 3) == "prp")) {
 			     for (xml_node interior : definition.children ()) {
-			       if (std::string {"Set"} == interior.name ())
-				 { handle_set (interior); }
+			       if (std::string {"Set"} == interior.name ()) {
+				 Set s {};
+				 s (interior, this);
+			       }
 			       else
 				 { handle_predicate (interior); }
 			     }
@@ -122,26 +146,6 @@ void Formula::handle_predicate (xml_node predicate) {
     }
   ++predicates;
   predicate.print (std::cout);
-}
-
-void Formula::handle_set (xml_node set) {
-  // Only POW (Z)
-  if (set.child ("Id").attribute ("typref").as_int () != 0)
-    { return; }
-  
-  std::string id {set.child ("Id").attribute ("value").value ()};
-
-  int size {upper_bound};
-  if (set.child ("Enumerated_Values")) {
-    size = 0;
-    for (auto el : set.child ("Enumerated_Values").children ())
-      { ++size; }
-    make_clause ({next_var + size});
-    make_clause ({-(next_var + size - 1)});
-  }
-
-  sets[id] = {next_var, size}; // next_var <=> |set|_{\lte 0}
-  next_var += size + 1;
 }
 
 void Formula::make_clause (std::vector<int> &&literals) {
