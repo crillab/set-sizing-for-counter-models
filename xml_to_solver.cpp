@@ -11,8 +11,6 @@
 
 using xml_node = const pugi::xml_node &;
 
-static int k; // upper-bound for size of abstract sets
-
 enum typref { POW_INTEGER, INTEGER };
 
 struct Definition;
@@ -22,8 +20,7 @@ class Formula {
   std::map<std::string, Definition *> definition_handlers {};
   std::stringstream cnf_body;
   std::string cnf_name;
-  int nbvar {0}, nbclauses {0};
-  int next_var {1};
+  int next_var {1}, nbclauses {0};
   int upper_bound;
 
   inline void make_clause (std::vector<int> &&);
@@ -35,6 +32,7 @@ public:
   inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
   friend struct Set;
+  friend struct BinaryPred;
   friend struct ExpComparison;
   friend struct UnaryPred;
   friend struct NaryPred;
@@ -43,6 +41,7 @@ public:
     return next_var;
   }
   void print_cnf () {
+    std::cout << "p cnf " << next_var - 1 << ' ' << nbclauses << '\n';
     std::cout << cnf_body.str ();
   }
 
@@ -122,13 +121,51 @@ struct PredGroup : public Definition {
   }
 };
 
+struct BinaryPred : public PredGroup {
+  inline int operator () (xml_node predicate, Formula *formula) {
+    if (skip_test (predicate) ||
+	std::ranges::any_of (predicate.children (),
+			     [formula] (xml_node child) 
+			     { return !formula->definition_handlers.contains (child.name ()); }))
+      { return -1; }
+
+    auto get_seq_part {[formula] (xml_node child) -> int {
+      Definition *handler {formula->definition_handlers[child.name ()]};
+      return (*handler) (child, formula);
+    }};
+
+    std::array<int, 2> sequent;
+    std::ranges::transform (predicate.children (), sequent.begin (),
+			    [formula] (xml_node child) {
+			      Definition *handler {formula->definition_handlers[child.name ()]};
+			      return (*handler) (child, formula);
+			    });
+    if (std::ranges::any_of (sequent,
+			     [] (int x) { return x < 0; }))
+      { return -1; }
+    
+    int binary_pred {formula->next_var++};
+
+    auto tie_sequent {[formula, &sequent, binary_pred] (int x) {
+      formula->make_clause ({-sequent[(1 + x) % 2], binary_pred});
+      formula->make_clause ({sequent[x], -binary_pred});
+      formula->make_clause ({-binary_pred, -sequent[x], sequent[(1 + x) % 2]});
+    }};
+
+    tie_sequent (0);
+    if (predicate.attribute ("op").value ()[0] == '<')
+      { tie_sequent (1); }
+
+    return binary_pred;
+  }
+};
+  
 struct ExpComparison : public PredGroup {
   inline int operator () (xml_node comparison, Formula *formula) {
     if (skip_test (comparison))
       { return -1; }
 
-    ++(formula->predicates);
-    return formula->predicates;
+    return -1;
   }
 };
 
@@ -147,7 +184,7 @@ struct UnaryPred : public PredGroup {
     if (negandum < 0)
       { return -1; }
 
-    int negation {(formula->next_var)++};
+    int negation {formula->next_var++};
     for (int sign : {1, -1})
       { formula->make_clause ({negandum * sign, negation * sign}); }
 
@@ -174,7 +211,7 @@ struct NaryPred : public PredGroup {
       juncts.push_back (junct);
     }
 
-    int junction_var {(formula->next_var)++};
+    int junction_var {formula->next_var++};
     
     if (std::string {"&"} == predicate.attribute ("op").value ()) {
       std::ranges::for_each (juncts,
@@ -200,6 +237,7 @@ struct NaryPred : public PredGroup {
 Formula::Formula (int k, std::string cnf_name) 
   : upper_bound {k}, cnf_name {cnf_name} {
   definition_handlers["Set"] = new Set {};
+  definition_handlers["Binary_Pred"] = new BinaryPred {};
   definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
@@ -245,6 +283,7 @@ void Formula::make_clause (std::vector<int> &&literals) {
   for (auto lit : literals)
     { cnf_body << lit << ' '; }
   cnf_body << '0' << std::endl; // "0\n";
+  ++nbclauses;
 }
 
 void Formula::order_encode_range (int zero, int size) {
@@ -253,7 +292,7 @@ void Formula::order_encode_range (int zero, int size) {
 }
 
 int main (int argc, char **argv) {
-  k = atoi (argv[1]);
+  int k {atoi (argv[1])};
   std::string out_file {get_cnf_file_name (argv[2])};
 
   auto t1 {std::chrono::system_clock::now ()};
@@ -265,6 +304,7 @@ int main (int argc, char **argv) {
 
   formula.explore_context (doc.first_child ());
   formula.apply_order_encoding ();
+  // formula.print_cnf ();
 
   auto t2 {std::chrono::system_clock::now ()};
   std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
