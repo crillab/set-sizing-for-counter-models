@@ -40,6 +40,7 @@ public:
   inline void explore_context (xml_node);
 
   friend struct Comparison;
+  friend struct ElementOf;
   friend struct SubsetOf;
   friend struct ProperSubsetOf;
   friend struct Equality;
@@ -136,6 +137,20 @@ protected:
   }
 };
 
+struct ElementOf : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+
+    int non_empty {formula->next_var++};
+    for (int sign : {-1, 1})
+      { formula->make_clause ({sign * non_empty, -sign * formula->sets[operand2][0]}); }
+
+    return non_empty;
+  }
+};
+
 struct SubsetOf : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     get_operands (comparison, formula);
@@ -165,9 +180,12 @@ struct ProperSubsetOf : public Comparison {
     
 struct Equality : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
+    if (comparison.first_child ().attribute ("typref").as_int () == 1)
+      { return -1; }
     get_operands (comparison, formula);
     if (operand1.empty () || operand2.empty ())
       { return -1; }
+    comparison.print (std::cout);
     return formula->constrain_equality (operand1, operand2);
   }
 };
@@ -336,6 +354,8 @@ struct NaryPred : public PredGroup {
     
 Formula::Formula (int k, std::string cnf_name) 
   : upper_bound {k}, cnf_name {cnf_name} {
+  comparison_handlers[":"] = new ElementOf {};
+  comparison_handlers["/:"] = new NotCompared {};
   comparison_handlers["<:"] = new SubsetOf {};
   comparison_handlers["/<:"] = new NotCompared {};
   comparison_handlers["<<:"] = new ProperSubsetOf {};
