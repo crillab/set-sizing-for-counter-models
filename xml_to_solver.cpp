@@ -23,6 +23,11 @@ class Formula {
   int next_var {1}, nbclauses {0};
   int upper_bound;
 
+  inline int complement (int);
+  inline int constrain_equality (std::string &, std::string &);
+  inline int constrain_inequality (std::string &, std::string &);
+  inline int constrain_gte (std::string &, std::string &);
+  inline int constraint_lte (std::string &, std::string &);
   inline void make_clause (std::vector<int> &&);
   inline void order_encode_range (int, int);
   
@@ -37,6 +42,7 @@ public:
   friend struct UnaryPred;
   friend struct NaryPred;
 
+  // spot-check interface
   int get_next_var () {
     return next_var;
   }
@@ -44,7 +50,6 @@ public:
     std::cout << "p cnf " << next_var - 1 << ' ' << nbclauses << '\n';
     std::cout << cnf_body.str ();
   }
-
   int predicates {0};
 };
 
@@ -161,6 +166,14 @@ struct BinaryPred : public PredGroup {
 };
   
 struct ExpComparison : public PredGroup {
+  std::map<std::string, Definition *> comparison_handlers;
+
+  ExpComparison () {}
+  ~ExpComparison () {
+    for (auto couple : comparison_handlers)
+      { delete couple.second; }
+  }
+  
   inline int operator () (xml_node comparison, Formula *formula) {
     if (skip_test (comparison))
       { return -1; }
@@ -184,11 +197,7 @@ struct UnaryPred : public PredGroup {
     if (negandum < 0)
       { return -1; }
 
-    int negation {formula->next_var++};
-    for (int sign : {1, -1})
-      { formula->make_clause ({negandum * sign, negation * sign}); }
-
-    return negation;
+    return formula->complement (negandum);
   }
 };
 
@@ -260,6 +269,32 @@ void Formula::apply_order_encoding (bool non_empty) {
   }
 }
 
+int Formula::complement (int negandum) {
+  int aux {next_var++};
+
+  for (int sign : {-1, 1})
+    { make_clause ({sign * aux, sign * negandum}); }
+
+  return negandum;
+}
+
+int Formula::constrain_equality (std::string &op1, std::string &op2) {
+  std::array<int, 2> operand1 {sets[op1]};
+  std::array<int, 2> operand2 {sets[op2]};
+  int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]}; // Only up to the size of the smaller one.
+
+  int aux {next_var++};
+  
+  for (int i {0}; i < max; ++i) {
+    for (int aux_sign : {-1, 1}) {
+      for (int var_sign : {-1, 1})
+	{ make_clause ({aux_sign * aux, var_sign * (operand1[0] + i), -var_sign * (operand2[0])}); }
+    }
+  }
+
+  return aux;
+}
+  
 void Formula::explore_context (xml_node proof_obligations) {
   for (xml_node definition : proof_obligations.children ()) {
     std::string name {definition.attribute ("name").value ()};
@@ -304,7 +339,7 @@ int main (int argc, char **argv) {
 
   formula.explore_context (doc.first_child ());
   formula.apply_order_encoding ();
-  // formula.print_cnf ();
+  formula.print_cnf ();
 
   auto t2 {std::chrono::system_clock::now ()};
   std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
