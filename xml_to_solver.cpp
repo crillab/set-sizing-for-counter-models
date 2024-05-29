@@ -25,9 +25,7 @@ class Formula {
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
-  inline int constrain_inequality (std::string &, std::string &);
   inline int constrain_gte (std::string &, std::string &);
-  inline int constraint_lte (std::string &, std::string &);
   inline void make_clause (std::vector<int> &&);
   inline void order_encode_range (int, int);
   
@@ -294,7 +292,20 @@ int Formula::constrain_equality (std::string &op1, std::string &op2) {
 
   return aux;
 }
-  
+
+int Formula::constrain_gte (std::string &op1, std::string &op2) {
+  std::array<int, 2> operand1 {sets[op1]};
+  std::array<int, 2> operand2 {sets[op2]};
+  int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]};
+
+  int aux {next_var++};
+
+  for (int i {0}; i < max; ++i)
+    { make_clause ({-(operand1[0] + i), operand2[0] + i}); }
+
+  return aux;
+}
+
 void Formula::explore_context (xml_node proof_obligations) {
   for (xml_node definition : proof_obligations.children ()) {
     std::string name {definition.attribute ("name").value ()};
