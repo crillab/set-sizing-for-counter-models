@@ -40,7 +40,10 @@ public:
   inline void explore_context (xml_node);
 
   friend struct Comparison;
+  friend struct SubsetOf;
+  friend struct ProperSubsetOf;
   friend struct Equality;
+  friend struct NotCompared;
   
   friend struct Set;
   friend struct BinaryPred;
@@ -115,17 +118,6 @@ struct Definition {
 
 struct Comparison : public Definition {
 protected:
-  // std::array<int, 2> operand1;
-  // std::array<int, 2> operand2;
-  // void get_operands (xml_node comparison, Formula *formula) {
-  //   auto get_set_limits {
-  //     [formula, this] (xml_node child) {
-  // 	Expression *handler {operand_handlers[child.name ()]};
-  // 	return formula->sets[(*handler) (child, formula)]; }
-  //   };
-  //   operand1 = get_set_limits (comparison.first_child ());
-  //   operand2 = get_set_limits (comparison.first_child ().next_sibling ());
-
   std::string operand1;
   std::string operand2;
   
@@ -144,13 +136,48 @@ protected:
   }
 };
 
-struct Equality : public Comparison {
+struct SubsetOf : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     get_operands (comparison, formula);
-    return formula->constrain_equality (operand1, operand2);
+    if (operand1.empty () || operand2.empty ())
+      { return -1; }
+    return formula->constrain_gte (operand2, operand1);
+  }
+};
+
+struct ProperSubsetOf : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand1.empty () || operand2.empty ())
+      { return -1; }
+    
+    int subset {formula->constrain_gte (operand2, operand1)};
+    int not_equal {formula->complement (formula->constrain_equality (operand1, operand2))};
+    int proper_subset {formula->next_var++};
+
+    for (int orig : {subset, not_equal})
+      { formula->make_clause ({-proper_subset, orig}); }
+    formula->make_clause ({-subset, -not_equal, proper_subset});
+
+    return proper_subset;
   }
 };
     
+struct Equality : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand1.empty () || operand2.empty ())
+      { return -1; }
+    return formula->constrain_equality (operand1, operand2);
+  }
+};
+
+struct NotCompared : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    return formula->next_var++;
+  }
+};
+
 struct Set : public Definition {
   inline int operator () (xml_node set, Formula *formula) {
     // Only POW (Z)
@@ -241,7 +268,6 @@ struct ExpComparison : public PredGroup {
     if (!formula->comparison_handlers.contains (op))
       { return -1; }
 
-    comparison.print (std::cout);
     Definition *handler {formula->comparison_handlers[op]};
     return (*handler) (comparison, formula);
   }
@@ -310,12 +336,19 @@ struct NaryPred : public PredGroup {
     
 Formula::Formula (int k, std::string cnf_name) 
   : upper_bound {k}, cnf_name {cnf_name} {
+  comparison_handlers["<:"] = new SubsetOf {};
+  comparison_handlers["/<:"] = new NotCompared {};
+  comparison_handlers["<<:"] = new ProperSubsetOf {};
+  comparison_handlers["/<<:"] = new NotCompared {};
   comparison_handlers["="] = new Equality {};
+  comparison_handlers["/="] = new NotCompared {};
+  
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
   definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
+
   operand_handlers["EmptySet"] = new EmptySet {};
   operand_handlers["Id"] = new Id {};
 }
@@ -398,7 +431,9 @@ void Formula::explore_context (xml_node proof_obligations) {
       for (xml_node interior : definition.children ()) {
 	if (definition_handlers.contains (interior.name ())) {
 	  Definition *handler {definition_handlers[interior.name ()]};
-	  (*handler) (interior, this);
+	  int flag {(*handler) (interior, this)};
+	  if (flag > 0)
+	    { make_clause ({flag}); }
 	}
 	else
 	  { std::cout << interior.name () << '\n'; }
