@@ -13,19 +13,23 @@ using xml_node = const pugi::xml_node &;
 
 enum typref { POW_INTEGER, INTEGER };
 
+struct Expression;
 struct Definition;
 
 class Formula {
   std::map<std::string, std::array<int, 2>> sets;    // <"name", {start_var, max_size}>
-  std::map<std::string, Definition *> definition_handlers {};
+  std::map<std::string, Definition *> comparison_handlers;
+  std::map<std::string, Definition *> definition_handlers;
+  std::map<std::string, Expression *> operand_handlers;
   std::stringstream cnf_body;
   std::string cnf_name;
   int next_var {1}, nbclauses {0};
-  int upper_bound;
+  int upper_bound {};
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
   inline int constrain_gte (std::string &, std::string &);
+  inline void construct_new_set (std::string &, int);
   inline void make_clause (std::vector<int> &&);
   inline void order_encode_range (int, int);
   
@@ -34,11 +38,18 @@ public:
   ~Formula ();
   inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
+
+  friend struct Comparison;
+  friend struct Equality;
+  
   friend struct Set;
   friend struct BinaryPred;
   friend struct ExpComparison;
   friend struct UnaryPred;
   friend struct NaryPred;
+
+  friend struct EmptySet;
+  friend struct Id;
 
   // spot-check interface
   int get_next_var () {
@@ -46,7 +57,7 @@ public:
   }
   void print_cnf () {
     std::cout << "p cnf " << next_var - 1 << ' ' << nbclauses << '\n';
-    std::cout << cnf_body.str ();
+    // std::cout << cnf_body.str ();
   }
   int predicates {0};
 };
@@ -65,7 +76,7 @@ inline bool convexity_constraint (xml_node comparison) {
     std::string {"imin"} == second_child.first_child ().attribute ("op").value () &&
     std::string {"imax"} == second_child.first_child ().next_sibling ().attribute ("op").value () &&
     std::ranges::all_of (second_child.children (),
-			  [&value] (auto &child) { return value == child.first_child ().attribute ("value").value (); });
+			 [&value] (auto &child) { return value == child.first_child ().attribute ("value").value (); });
 }  
   
 std::string get_cnf_file_name (char *pog_name) {
@@ -76,10 +87,70 @@ std::string get_cnf_file_name (char *pog_name) {
   return read_in_file;
 }
 
+struct Expression {
+  virtual std::string operator () (xml_node, Formula *) = 0;
+};
+
+struct Id : public Expression {
+  inline std::string operator () (xml_node operand, Formula *formula) {
+    std::string value {operand.attribute ("value").value ()};
+    if (!formula->sets.contains (value)) 
+      { formula->construct_new_set (value, formula->upper_bound); }
+
+    return value;
+  }
+};
+
+struct EmptySet : public Expression {
+  inline std::string operator () (xml_node, Formula *formula) {
+    if (!formula->sets.contains ("{}"))
+      { formula->sets["{}"] = {formula->next_var++, 0}; }
+    return "{}";
+  }
+};
+
 struct Definition {
   virtual int operator () (xml_node, Formula *) = 0;
 };
 
+struct Comparison : public Definition {
+protected:
+  // std::array<int, 2> operand1;
+  // std::array<int, 2> operand2;
+  // void get_operands (xml_node comparison, Formula *formula) {
+  //   auto get_set_limits {
+  //     [formula, this] (xml_node child) {
+  // 	Expression *handler {operand_handlers[child.name ()]};
+  // 	return formula->sets[(*handler) (child, formula)]; }
+  //   };
+  //   operand1 = get_set_limits (comparison.first_child ());
+  //   operand2 = get_set_limits (comparison.first_child ().next_sibling ());
+
+  std::string operand1;
+  std::string operand2;
+  
+  void get_operands (xml_node comparison, Formula *formula) {
+    auto handle_operand {[formula] (xml_node operand) {
+      if (!formula->operand_handlers.contains (operand.name ()))
+	{ return std::string {}; }
+      Expression *handler {formula->operand_handlers[operand.name ()]};
+      return (*handler) (operand, formula);
+    }};
+
+    operand1 = handle_operand (comparison.first_child ());
+    if (operand1.empty ())
+      { return; }
+    operand2 = handle_operand (comparison.first_child ().next_sibling ());
+  }
+};
+
+struct Equality : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    return formula->constrain_equality (operand1, operand2);
+  }
+};
+    
 struct Set : public Definition {
   inline int operator () (xml_node set, Formula *formula) {
     // Only POW (Z)
@@ -95,19 +166,17 @@ struct Set : public Definition {
       size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; }
-      formula->make_clause ({var + size});
       formula->make_clause ({-(var + size - 1)});
     }
 
-    formula->sets[id] = {var, size}; // next_var <=> |set|_{\lte 0}
-    var += size;
-    formula->next_var = var + 1;
+    formula->construct_new_set (id, size);
 
     return var;
   }
 };
-
+  
 struct PredGroup : public Definition {
+protected:
   inline bool skip_test (xml_node predicate) {
     bool skip
       {
@@ -164,19 +233,17 @@ struct BinaryPred : public PredGroup {
 };
   
 struct ExpComparison : public PredGroup {
-  std::map<std::string, Definition *> comparison_handlers;
-
-  ExpComparison () {}
-  ~ExpComparison () {
-    for (auto couple : comparison_handlers)
-      { delete couple.second; }
-  }
-  
   inline int operator () (xml_node comparison, Formula *formula) {
     if (skip_test (comparison))
       { return -1; }
 
-    return -1;
+    std::string op {comparison.attribute ("op").value ()};
+    if (!formula->comparison_handlers.contains (op))
+      { return -1; }
+
+    comparison.print (std::cout);
+    Definition *handler {formula->comparison_handlers[op]};
+    return (*handler) (comparison, formula);
   }
 };
 
@@ -243,15 +310,23 @@ struct NaryPred : public PredGroup {
     
 Formula::Formula (int k, std::string cnf_name) 
   : upper_bound {k}, cnf_name {cnf_name} {
+  comparison_handlers["="] = new Equality {};
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
   definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
+  operand_handlers["EmptySet"] = new EmptySet {};
+  operand_handlers["Id"] = new Id {};
 }
 
 Formula::~Formula () {
-  for (auto couple : definition_handlers)
+  for (auto &map : {comparison_handlers, definition_handlers}) {
+    for (auto &couple : map)
+      { delete couple.second; }
+  }
+
+  for (auto &couple : operand_handlers)
     { delete couple.second; }
 }
 
@@ -265,6 +340,12 @@ void Formula::apply_order_encoding (bool non_empty) {
     if (non_empty)
       { make_clause ({-zero}); }
   }
+}
+ 
+inline void Formula::construct_new_set (std::string &name, int size) {
+  int var {next_var};
+  sets[name] = {var, size};
+  next_var = var + size + 1;
 }
 
 int Formula::complement (int negandum) {
@@ -283,7 +364,7 @@ int Formula::constrain_equality (std::string &op1, std::string &op2) {
 
   int aux {next_var++};
   
-  for (int i {0}; i < max; ++i) {
+  for (int i {0}; i <= max; ++i) {
     for (int aux_sign : {-1, 1}) {
       for (int var_sign : {-1, 1})
 	{ make_clause ({aux_sign * aux, var_sign * (operand1[0] + i), -var_sign * (operand2[0])}); }
@@ -300,7 +381,7 @@ int Formula::constrain_gte (std::string &op1, std::string &op2) {
 
   int aux {next_var++};
 
-  for (int i {0}; i < max; ++i)
+  for (int i {0}; i <= max; ++i)
     { make_clause ({-(operand1[0] + i), operand2[0] + i}); }
 
   return aux;
