@@ -5,6 +5,7 @@
 #include <chrono>
 #include <iostream>
 #include <map>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -17,20 +18,19 @@ struct Expression;
 struct Definition;
 
 class Formula {
-  std::map<std::string, std::array<int, 2>> sets;    // <"name", {start_var, max_size}>
+  std::map<std::string, int> sets;    // <"name", first_var
   std::map<std::string, Definition *> comparison_handlers;
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
-  std::stringstream cnf_body;
-  std::string cnf_name;
+  std::stringstream pbs_body;
+  std::string pbs_name;
   int next_var {1}, nbclauses {0};
-  int upper_bound {};
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
   inline int constrain_gte (std::string &, std::string &);
   inline void construct_new_set (std::string &, int);
-  inline void make_clause (std::vector<int> &&);
+  inline void make_clause (std::vector<int> &&, int = 1);
   inline void order_encode_range (int, int);
   
 public:
@@ -38,6 +38,7 @@ public:
   ~Formula ();
   inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
+  int upper_bound {};
 
   friend struct Comparison;
   friend struct ElementOf;
@@ -59,9 +60,8 @@ public:
   int get_next_var () {
     return next_var;
   }
-  void print_cnf () {
-    std::cout << "p cnf " << next_var - 1 << ' ' << nbclauses << '\n';
-    // std::cout << cnf_body.str ();
+  void print_pbs () {
+    std::cout << pbs_body.str ();
   }
   int predicates {0};
 };
@@ -83,11 +83,11 @@ inline bool convexity_constraint (xml_node comparison) {
 			 [&value] (auto &child) { return value == child.first_child ().attribute ("value").value (); });
 }  
   
-std::string get_cnf_file_name (char *pog_name) {
+std::string get_pbs_file_name (char *pog_name) {
   std::string read_in_file {pog_name};
   read_in_file = read_in_file.substr (read_in_file.rfind ('/', read_in_file.rfind ('/') - 1) + 1);
   std::ranges::replace (read_in_file, '/', '-');
-  read_in_file.replace (read_in_file.rfind ("pog"), 3, "cnf");
+  read_in_file.replace (read_in_file.rfind ("pog"), 3, "pbs");
   return read_in_file;
 }
 
@@ -107,8 +107,12 @@ struct Id : public Expression {
 
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
-    if (!formula->sets.contains ("{}"))
-      { formula->sets["{}"] = {formula->next_var++, 0}; }
+    if (!formula->sets.contains ("{}")) {
+      formula->sets["{}"] = formula->next_var++;
+      std::vector<int> vec (formula->upper_bound);
+      std::iota (vec.begin (), vec.end (), -formula->sets["{}"], -1);
+      formula->make_clause (std::move (vec), formula->upper_bound);
+    }
     return "{}";
   }
 };
@@ -137,19 +141,19 @@ protected:
   }
 };
 
-struct ElementOf : public Comparison {
-  inline int operator () (xml_node comparison, Formula *formula) {
-    get_operands (comparison, formula);
-    if (operand2.empty ())
-      { return -1; }
+// struct ElementOf : public Comparison {
+//   inline int operator () (xml_node comparison, Formula *formula) {
+//     get_operands (comparison, formula);
+//     if (operand2.empty ())
+//       { return -1; }
 
-    int non_empty {formula->next_var++};
-    for (int sign : {-1, 1})
-      { formula->make_clause ({sign * non_empty, -sign * formula->sets[operand2][0]}); }
+//     int non_empty {formula->next_var++};
+//     for (int sign : {-1, 1})
+//       { formula->make_clause ({sign * non_empty, -sign * formula->sets[operand2][0]}); }
 
-    return non_empty;
-  }
-};
+//     return non_empty;
+//   }
+// };
 
 struct SubsetOf : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
@@ -160,35 +164,34 @@ struct SubsetOf : public Comparison {
   }
 };
 
-struct ProperSubsetOf : public Comparison {
-  inline int operator () (xml_node comparison, Formula *formula) {
-    get_operands (comparison, formula);
-    if (operand1.empty () || operand2.empty ())
-      { return -1; }
+// struct ProperSubsetOf : public Comparison {
+//   inline int operator () (xml_node comparison, Formula *formula) {
+//     get_operands (comparison, formula);
+//     if (operand1.empty () || operand2.empty ())
+//       { return -1; }
     
-    int subset {formula->constrain_gte (operand2, operand1)};
-    int not_equal {formula->complement (formula->constrain_equality (operand1, operand2))};
-    int proper_subset {formula->next_var++};
+//     int subset {formula->constrain_gte (operand2, operand1)};
+//     int not_equal {formula->complement (formula->constrain_equality (operand1, operand2))};
+//     int proper_subset {formula->next_var++};
 
-    for (int orig : {subset, not_equal})
-      { formula->make_clause ({-proper_subset, orig}); }
-    formula->make_clause ({-subset, -not_equal, proper_subset});
+//     for (int orig : {subset, not_equal})
+//       { formula->make_clause ({-proper_subset, orig}); }
+//     formula->make_clause ({-subset, -not_equal, proper_subset});
 
-    return proper_subset;
-  }
-};
+//     return proper_subset;
+//   }
+// };
     
-struct Equality : public Comparison {
-  inline int operator () (xml_node comparison, Formula *formula) {
-    if (comparison.first_child ().attribute ("typref").as_int () == 1)
-      { return -1; }
-    get_operands (comparison, formula);
-    if (operand1.empty () || operand2.empty ())
-      { return -1; }
-    comparison.print (std::cout);
-    return formula->constrain_equality (operand1, operand2);
-  }
-};
+// struct Equality : public Comparison {
+//   inline int operator () (xml_node comparison, Formula *formula) {
+//     if (comparison.first_child ().attribute ("typref").as_int () == 1)
+//       { return -1; }
+//     get_operands (comparison, formula);
+//     if (operand1.empty () || operand2.empty ())
+//       { return -1; }
+//     return formula->constrain_equality (operand1, operand2);
+//   }
+// };
 
 struct NotCompared : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
@@ -204,17 +207,24 @@ struct Set : public Definition {
   
     std::string id {set.child ("Id").attribute ("value").value ()};
 
-    int size {formula->upper_bound};
     int var {formula->next_var};
+
+    auto fresh_construct {
+      [formula, &id, var] (int size) {
+	formula->construct_new_set (id);
+	std::vector<int> vec (upper_bound);
+	std::iota (vec.begin (), vec.end (), var);
+	return vec;
+      }};
     
     if (set.child ("Enumerated_Values")) {
-      size = 0;
+      int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; }
-      formula->make_clause ({-(var + size - 1)});
+      formula->make_clause (fresh_construct (size), size);
     }
-
-    formula->construct_new_set (id, size);
+    else
+      { formula->make_clause (fresh_construct (size)); }
 
     return var;
   }
@@ -352,8 +362,8 @@ struct NaryPred : public PredGroup {
   }
 };
     
-Formula::Formula (int k, std::string cnf_name) 
-  : upper_bound {k}, cnf_name {cnf_name} {
+Formula::Formula (int k, std::string pbs_name) 
+  : upper_bound {k}, pbs_name {pbs_name} {
   comparison_handlers[":"] = new ElementOf {};
   comparison_handlers["/:"] = new NotCompared {};
   comparison_handlers["<:"] = new SubsetOf {};
@@ -382,23 +392,11 @@ Formula::~Formula () {
   for (auto &couple : operand_handlers)
     { delete couple.second; }
 }
-
-void Formula::apply_order_encoding (bool non_empty) {
-  for (auto &set : sets) {
-    int zero {set.second[0]};
-    int size {set.second[1]};
-
-    order_encode_range (zero, size);
-    make_clause ({zero + size});
-    if (non_empty)
-      { make_clause ({-zero}); }
-  }
-}
  
-inline void Formula::construct_new_set (std::string &name, int size) {
+inline void Formula::construct_new_set (std::string &name) {
   int var {next_var};
-  sets[name] = {var, size};
-  next_var = var + size + 1;
+  sets[name] = var;
+  next_var = var + upper_bound + 1;
 }
 
 int Formula::complement (int negandum) {
@@ -410,49 +408,48 @@ int Formula::complement (int negandum) {
   return negandum;
 }
 
-int Formula::constrain_equality (std::string &op1, std::string &op2) {
-  std::array<int, 2> operand1 {sets[op1]};
-  std::array<int, 2> operand2 {sets[op2]};
-  int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]}; // Only up to the size of the smaller one.
+// int Formula::constrain_equality (std::string &op1, std::string &op2) { // MIGHT CHANGE
+//   std::array<int, 2> operand1 {sets[op1]};
+//   std::array<int, 2> operand2 {sets[op2]};
+//   int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]}; // Only up to the size of the smaller one.
 
-  int aux {next_var++};
+//   int aux {next_var++};
   
-  for (int i {0}; i <= max; ++i) {
-    for (int aux_sign : {-1, 1}) {
-      for (int var_sign : {-1, 1})
-	{ make_clause ({aux_sign * aux, var_sign * (operand1[0] + i), -var_sign * (operand2[0])}); }
-    }
-  }
+//   for (int i {0}; i <= max; ++i) {
+//     for (int aux_sign : {-1, 1}) {
+//       for (int var_sign : {-1, 1})
+// 	{ make_clause ({aux_sign * aux, var_sign * (operand1[0] + i), -var_sign * (operand2[0])}); }
+//     }
+//   }
 
-  return aux;
-}
+//   return aux;
+// }
 
-int Formula::constrain_gte (std::string &op1, std::string &op2) {
-  std::array<int, 2> operand1 {sets[op1]};
-  std::array<int, 2> operand2 {sets[op2]};
-  int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]};
+// int Formula::constrain_gte (std::string &op1, std::string &op2) {
+//   std::array<int, 2> operand1 {sets[op1]};
+//   std::array<int, 2> operand2 {sets[op2]};
+//   int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]};
 
-  int aux {next_var++};
+//   int aux {next_var++};
 
-  for (int i {0}; i <= max; ++i)
-    { make_clause ({-(operand1[0] + i), operand2[0] + i}); }
+//   for (int i {0}; i <= max; ++i)
+//     { make_clause ({-(operand1[0] + i), operand2[0] + i}); }
 
-  return aux;
-}
+//   return aux;
+// }
 
 void Formula::explore_context (xml_node proof_obligations) {
   for (xml_node definition : proof_obligations.children ()) {
     std::string name {definition.attribute ("name").value ()};
     if (std::string {"Define"} == definition.name ()
-	&& (name == "ctx"                                        // CHECK // Different from POGParser
-	    // || name == "ass"                                  // CHECK
-	    || name == "sets"                                    // CHECK
+	&& (name == "ctx"                                        
+	    || name == "sets"                                    
 	    || name.substr (name.length () - 3) == "prp")) {
       for (xml_node interior : definition.children ()) {
 	if (definition_handlers.contains (interior.name ())) {
 	  Definition *handler {definition_handlers[interior.name ()]};
 	  int flag {(*handler) (interior, this)};
-	  if (flag > 0)
+	  if (flag > 0 && std::string {"Set"} != interior.name ())
 	    { make_clause ({flag}); }
 	}
 	else
@@ -461,21 +458,23 @@ void Formula::explore_context (xml_node proof_obligations) {
     }}
 }
 
-void Formula::make_clause (std::vector<int> &&literals) {
-  for (auto lit : literals)
-    { cnf_body << lit << ' '; }
-  cnf_body << '0' << std::endl; // "0\n";
+void Formula::make_clause (std::vector<int> &&literals, int degree) {
+  for (auto lit : literals) {
+    if (lit < 0) {
+      pbs_body << "-1 x";
+      lit *= -1;
+    }
+    else
+      { pbs_body << "+1 x"; }
+    pbs_body << lit << ' ';
+  }
+  pbs_body << ">= " << degree << ";\n";
   ++nbclauses;
-}
-
-void Formula::order_encode_range (int zero, int size) {
-  for (int i {0}; i < size - 1; ++i)
-    { make_clause ({-(zero + i), zero + i + 1}); }
 }
 
 int main (int argc, char **argv) {
   int k {atoi (argv[1])};
-  std::string out_file {get_cnf_file_name (argv[2])};
+  std::string out_file {get_pbs_file_name (argv[2])};
 
   auto t1 {std::chrono::system_clock::now ()};
 
@@ -485,8 +484,7 @@ int main (int argc, char **argv) {
   doc.load_file (argv[2]);
 
   formula.explore_context (doc.first_child ());
-  formula.apply_order_encoding ();
-  formula.print_cnf ();
+  formula.print_pbs ();
 
   auto t2 {std::chrono::system_clock::now ()};
   std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
