@@ -265,7 +265,7 @@ struct BinaryPred : public PredGroup {
 
     auto tie_sequent {[formula, &sequent, binary_pred] (int x) {
       formula->make_clause ({-sequent[(1 + x) % 2], binary_pred});
-      formula->make_clause ({sequent[x], -binary_pred});
+      formula->make_clause ({sequent[x], binary_pred});
       formula->make_clause ({-binary_pred, -sequent[x], sequent[(1 + x) % 2]});
     }};
 
