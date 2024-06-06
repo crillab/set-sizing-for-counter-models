@@ -25,6 +25,7 @@ class Formula {
   std::stringstream pbs_body;
   std::string pbs_name;
   int next_var {1}, nbclauses {0};
+  int upper_bound {};
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
@@ -38,7 +39,6 @@ public:
   ~Formula ();
   inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
-  int upper_bound {};
 
   friend struct Comparison;
   friend struct ElementOf;
@@ -110,7 +110,7 @@ struct EmptySet : public Expression {
     if (!formula->sets.contains ("{}")) {
       int var {formula->next_var++};
       formula->sets["{}"] = {var, 1};
-      formula->make_clause ({var}, 0, "= ");
+      formula->make_clause ({var}, 0, "=");
     }
     return "{}";
   }
@@ -220,7 +220,7 @@ struct Set : public Definition {
       int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; }
-      formula->make_clause (fresh_construct (size), size, "= ");
+      formula->make_clause (fresh_construct (size), size, "=");
     }
     else
       { formula->make_clause (fresh_construct (formula->upper_bound)); }
@@ -364,19 +364,19 @@ struct NaryPred : public PredGroup {
 Formula::Formula (int k, std::string pbs_name) 
   : upper_bound {k}, pbs_name {pbs_name} {
   // comparison_handlers[":"] = new ElementOf {};
-  comparison_handlers["/:"] = new NotCompared {};
+  // comparison_handlers["/:"] = new NotCompared {};
   // comparison_handlers["<:"] = new SubsetOf {};
-  comparison_handlers["/<:"] = new NotCompared {};
+  // comparison_handlers["/<:"] = new NotCompared {};
   // comparison_handlers["<<:"] = new ProperSubsetOf {};
-  comparison_handlers["/<<:"] = new NotCompared {};
+  // comparison_handlers["/<<:"] = new NotCompared {};
   // comparison_handlers["="] = new Equality {};
-  comparison_handlers["/="] = new NotCompared {};
+  // comparison_handlers["/="] = new NotCompared {};
   
   definition_handlers["Set"] = new Set {};
-  definition_handlers["Binary_Pred"] = new BinaryPred {};
-  definition_handlers["Exp_Comparison"] = new ExpComparison {};
+  // definition_handlers["Binary_Pred"] = new BinaryPred {};
+  // definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
-  definition_handlers["Nary_Pred"] = new NaryPred {};
+  // definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["EmptySet"] = new EmptySet {};
   // operand_handlers["Id"] = new Id {};
@@ -401,8 +401,7 @@ inline void Formula::construct_new_set (std::string &name, int size) {
 int Formula::complement (int negandum) {
   int aux {next_var++};
 
-  for (int sign : {-1, 1})
-    { make_clause ({sign * aux, sign * negandum}); }
+  make_clause ({-aux, negandum}, 1, "=");
 
   return negandum;
 }
