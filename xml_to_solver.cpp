@@ -260,28 +260,29 @@ struct BinaryPred : public PredGroup {
       return (*handler) (child, formula);
     }};
 
-    std::array<int, 2> sequent;
-    std::ranges::transform (predicate.children (), sequent.begin (),
+    std::array<int, 3> variables;
+    std::ranges::transform (predicate.children (), variables.begin (),
 			    [formula] (xml_node child) {
 			      Definition *handler {formula->definition_handlers[child.name ()]};
 			      return (*handler) (child, formula);
 			    });
-    if (std::ranges::any_of (sequent,
-			     [] (int x) { return x < 0; }))
+    if (std::any_of (variables.begin (), std::next (variables.begin (), 2),
+		     [] (int x) { return x < 0; }))
       { return -1; }
     
     int binary_pred {formula->next_var++};
+    variables[2] = binary_pred;
 
-    auto tie_sequent {[formula, &sequent, binary_pred] (int x) {
-      formula->make_clause ({-sequent[(1 + x) % 2], binary_pred});
-      formula->make_clause ({sequent[x], -binary_pred});
-      formula->make_clause ({-binary_pred, -sequent[x], sequent[(1 + x) % 2]});
-    }};
-
-    tie_sequent (0);
-    if (predicate.attribute ("op").value ()[0] == '<')
-      { tie_sequent (1); }
-
+    if (predicate.attribute ("op").value ()[0] != '<') {
+      formula->make_clause ({-variables[1], binary_pred});
+      formula->make_clause ({variables[0], binary_pred});
+      formula->make_clause ({-binary_pred, -variables[0], variables[1]});
+    }
+    else {
+      for (int i {0}; i < 3; ++i)
+	{ formula->make_clause ({-variables[i % 3], -variables[(i + 1) % 3], variables[(i + 2) % 3]}); }
+      formula->make_clause ({variables[0], variables[1], variables[2]});
+    }
     return binary_pred;
   }
 };
@@ -373,10 +374,10 @@ Formula::Formula (int k, std::string pbs_name)
   // comparison_handlers["/="] = new NotCompared {};
   
   definition_handlers["Set"] = new Set {};
-  // definition_handlers["Binary_Pred"] = new BinaryPred {};
+  definition_handlers["Binary_Pred"] = new BinaryPred {};
   // definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
-  // definition_handlers["Nary_Pred"] = new NaryPred {};
+  definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["EmptySet"] = new EmptySet {};
   // operand_handlers["Id"] = new Id {};
