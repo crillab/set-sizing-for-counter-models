@@ -95,15 +95,15 @@ struct Expression {
   virtual std::string operator () (xml_node, Formula *) = 0;
 };
 
-// struct Id : public Expression {
-//   inline std::string operator () (xml_node operand, Formula *formula) {
-//     std::string value {operand.attribute ("value").value ()};
-//     if (!formula->sets.contains (value)) 
-//       { formula->construct_new_set (value); }
+struct Id : public Expression {
+  inline std::string operator () (xml_node operand, Formula *formula) {
+    std::string value {operand.attribute ("value").value ()};
+    if (!formula->sets.contains (value)) 
+      { formula->construct_new_set (value, formula->upper_bound); }
 
-//     return value;
-//   }
-// };
+    return value;
+  }
+};
 
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
@@ -380,7 +380,7 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["EmptySet"] = new EmptySet {};
-  // operand_handlers["Id"] = new Id {};
+  operand_handlers["Id"] = new Id {};
 }
 
 Formula::~Formula () {
