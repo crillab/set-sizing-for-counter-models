@@ -263,15 +263,25 @@ struct BinaryPred : public PredGroup {
     
     int binary_pred {formula->next_var++};
 
-    auto tie_sequent {[formula, &sequent, binary_pred] (int x) {
-      formula->make_clause ({-sequent[(1 + x) % 2], binary_pred});
-      formula->make_clause ({sequent[x], binary_pred});
-      formula->make_clause ({-binary_pred, -sequent[x], sequent[(1 + x) % 2]});
+    auto tie_sequent {[formula, &sequent] (int arg_shift, int binary_pred) {
+      formula->make_clause ({-sequent[(1 + arg_shift) % 2], binary_pred});
+      formula->make_clause ({sequent[arg_shift], binary_pred});
+      formula->make_clause ({-binary_pred, -sequent[arg_shift], sequent[(1 + arg_shift) % 2]});
     }};
 
-    tie_sequent (0);
-    if (predicate.attribute ("op").value ()[0] == '<')
-      { tie_sequent (1); }
+    tie_sequent (0, binary_pred);
+    
+    if (predicate.attribute ("op").value ()[0] == '<') {
+      int forwards {binary_pred};
+      int backwards {formula->next_var++};
+      
+      tie_sequent (1, backwards);
+
+      binary_pred = formula->next_var++;
+      for (int dir : {forwards, backwards})
+	{ formula->make_clause ({-binary_pred, dir}); }
+      formula->make_clause ({-forwards, -backwards, binary_pred});
+    }
 
     return binary_pred;
   }
