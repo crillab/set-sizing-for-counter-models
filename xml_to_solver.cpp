@@ -114,6 +114,10 @@ struct UnaryExp : public Expression {
 	Expression *handler {formula->operand_handlers[child.name ()]};
 	return "FIN(" + (*handler) (child, formula);
       }
+      else if (std::string {"card"} == expression.attribute ("op").value ()) {
+	Expression *handler {formula->operand_handlers[child.name ()]};
+	return (*handler) (child, formula);
+      }
     }
     return "";
   }
@@ -509,13 +513,12 @@ void Formula::explore_context (xml_node proof_obligations) {
 
 void Formula::make_clause (std::vector<int> &&literals, int degree, std::string comparison) {
   for (auto lit : literals) {
+    pbs_body << "+1 ";
     if (lit < 0) {
-      pbs_body << "-1 x";
+      pbs_body << '~';
       lit *= -1;
     }
-    else
-      { pbs_body << "+1 x"; }
-    pbs_body << lit << ' ';
+    pbs_body << 'x' << lit << ' ';
   }
   pbs_body << comparison << ' ' << degree << ";\n";
   ++nbclauses;
