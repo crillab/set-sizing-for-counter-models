@@ -53,6 +53,7 @@ public:
   friend struct UnaryPred;
   friend struct NaryPred;
 
+  friend struct UnaryExp;
   friend struct EmptySet;
   friend struct Id;
 
@@ -102,6 +103,19 @@ struct Id : public Expression {
       { formula->construct_new_set (value, formula->upper_bound); }
 
     return value;
+  }
+};
+
+struct UnaryExp : public Expression {
+  inline std::string operator () (xml_node expression, Formula *formula) {
+    xml_node child {expression.first_child ()};
+    if (formula->operand_handlers.contains (child.name ())) {
+      if (std::string {"FIN"} == expression.attribute ("op").value ()) {
+	Expression *handler {formula->operand_handlers[child.name ()]};
+	return "FIN(" + (*handler) (child, formula);
+      }
+    }
+    return "";
   }
 };
 
@@ -226,8 +240,8 @@ struct NotCompared : public Comparison {
 
 struct Set : public Definition {
   inline int operator () (xml_node set, Formula *formula) {
-    // Only POW (Z)
-    if (set.child ("Id").attribute ("typref").as_int () != 0)
+    // Only POW (Z) || Z
+    if (set.child ("Id").attribute ("typref").as_int () > INTEGER)
       { return -1; }
   
     std::string id {set.child ("Id").attribute ("value").value ()};
@@ -260,6 +274,7 @@ protected:
   inline bool skip_test (xml_node predicate) {
     bool skip
       {
+	false && 
 	// Deal with only POW (Z) and Z
 	std::ranges::any_of (predicate.children (),
 			     [] (auto child) { return child.attribute ("typref").as_int () > INTEGER; }) ||
@@ -407,6 +422,7 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
+  operand_handlers["Unary_Exp"] = new UnaryExp {};
   operand_handlers["EmptySet"] = new EmptySet {};
   operand_handlers["Id"] = new Id {};
 }
