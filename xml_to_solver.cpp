@@ -18,7 +18,7 @@ struct Expression;
 struct Definition;
 
 class Formula {
-  std::map<std::string, int> sets;    // <"name", first_var
+  std::map<std::string, std::array<int, 2>> sets;    // <"name", {first_var, size}
   std::map<std::string, Definition *> comparison_handlers;
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
@@ -29,8 +29,8 @@ class Formula {
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
   inline int constrain_gte (std::string &, std::string &);
-  inline void construct_new_set (std::string &);
-  inline void make_clause (std::vector<int> &&, int = 1);
+  inline void construct_new_set (std::string &, int);
+  inline void make_clause (std::vector<int> &&, int = 1, std::string = ">=");
   inline void order_encode_range (int, int);
   
 public:
@@ -95,25 +95,22 @@ struct Expression {
   virtual std::string operator () (xml_node, Formula *) = 0;
 };
 
-struct Id : public Expression {
-  inline std::string operator () (xml_node operand, Formula *formula) {
-    std::string value {operand.attribute ("value").value ()};
-    if (!formula->sets.contains (value)) 
-      { formula->construct_new_set (value); }
+// struct Id : public Expression {
+//   inline std::string operator () (xml_node operand, Formula *formula) {
+//     std::string value {operand.attribute ("value").value ()};
+//     if (!formula->sets.contains (value)) 
+//       { formula->construct_new_set (value); }
 
-    return value;
-  }
-};
+//     return value;
+//   }
+// };
 
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
     if (!formula->sets.contains ("{}")) {
-      formula->sets["{}"] = formula->next_var++;
-      std::vector<int> vec (formula->upper_bound);
-      std::iota (vec.begin (), vec.end (), formula->sets["{}"]);
-      std::transform (vec.begin (), vec.end (), vec.begin (),
-		      [] (int x) { return -x; });
-      formula->make_clause (std::move (vec), formula->upper_bound);
+      int var {formula->next_var++};
+      formula->sets["{}"] = {var, 1};
+      formula->make_clause ({var}, 0, "= ");
     }
     return "{}";
   }
@@ -212,9 +209,9 @@ struct Set : public Definition {
     int var {formula->next_var};
 
     auto fresh_construct {
-      [formula, &id, var] () {
-	formula->construct_new_set (id);
-	std::vector<int> vec (formula->upper_bound);
+      [formula, &id, var] (int size) {
+	formula->construct_new_set (id, size);
+	std::vector<int> vec (size);
 	std::iota (vec.begin (), vec.end (), var);
 	return vec;
       }};
@@ -223,10 +220,10 @@ struct Set : public Definition {
       int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; }
-      formula->make_clause (fresh_construct (), size);
+      formula->make_clause (fresh_construct (size), size, "= ");
     }
     else
-      { formula->make_clause (fresh_construct ()); }
+      { formula->make_clause (fresh_construct (formula->upper_bound)); }
 
     return var;
   }
@@ -382,7 +379,7 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["EmptySet"] = new EmptySet {};
-  operand_handlers["Id"] = new Id {};
+  // operand_handlers["Id"] = new Id {};
 }
 
 Formula::~Formula () {
@@ -395,10 +392,10 @@ Formula::~Formula () {
     { delete couple.second; }
 }
  
-inline void Formula::construct_new_set (std::string &name) {
+inline void Formula::construct_new_set (std::string &name, int size) {
   int var {next_var};
-  sets[name] = var;
-  next_var = var + upper_bound + 1;
+  sets[name] = {var, size};
+  next_var = var + size + 1;
 }
 
 int Formula::complement (int negandum) {
@@ -460,7 +457,7 @@ void Formula::explore_context (xml_node proof_obligations) {
     }}
 }
 
-void Formula::make_clause (std::vector<int> &&literals, int degree) {
+void Formula::make_clause (std::vector<int> &&literals, int degree, std::string comparison) {
   for (auto lit : literals) {
     if (lit < 0) {
       pbs_body << "-1 x";
@@ -470,7 +467,7 @@ void Formula::make_clause (std::vector<int> &&literals, int degree) {
       { pbs_body << "+1 x"; }
     pbs_body << lit << ' ';
   }
-  pbs_body << ">= " << degree << ";\n";
+  pbs_body << comparison << ' ' << degree << ";\n";
   ++nbclauses;
 }
 
