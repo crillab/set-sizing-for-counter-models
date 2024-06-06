@@ -57,6 +57,8 @@ public:
   friend struct EmptySet;
   friend struct Id;
 
+  friend class SetSizer;
+  
   // spot-check interface
   int get_next_var () {
     return next_var;
@@ -408,7 +410,71 @@ struct NaryPred : public PredGroup {
     return junction_var;
   }
 };
-    
+
+class SetSizer {
+  Formula *formula;
+  int degree;
+  int selector;
+
+  int get_limits (std::vector<std::string> &V) {
+    return std::accumulate (V.begin (), V.end (), 0,
+			    [this] (int acc, std::string &name)
+			    { return acc + formula->sets[name][1]; });
+  }
+			     
+  void run_through (std::vector<std::string> &V, char sign) {
+    for (auto &el_of_v : V) {
+      int var {formula->sets[el_of_v][0]};
+      for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
+	{ formula->pbs_body << sign << "1 x" << var++ << ' '; }
+    }
+  }
+	
+  inline void if_var (std::vector<std::string> &positives,
+		      std::vector<std::string> &negatives) {
+    // M := -α + |pos|
+
+    int positive_limits {get_limits (positives)};
+    formula->pbs_body << '+' << (degree - positive_limits)
+		      << " x" << selector << ' ';
+
+    run_through (negatives, '+');
+    run_through (positives, '-');
+
+    formula->pbs_body << ">= " << positive_limits << ";\n";
+  }
+
+  inline void if_pbexpr (std::vector<std::string> &positives,
+			 std::vector<std::string> &negatives) {
+    // M := -(|neg| + α + 2)
+
+    run_through (positives, '+');
+    run_through (negatives, '-');
+
+    int negative_limits {get_limits (negatives)};
+    formula->pbs_body << -(negative_limits + degree + 2)
+		      << " x" << selector
+		      << " >= " << degree + 1 << ";\n";
+  }
+
+public:
+  inline int operator () (std::vector<std::string> positives,
+			  std::vector<std::string> negatives,
+			  int alpha, Formula *formula) {
+    // Always of the the form Σpos - Σneg <= α
+    // Returns selector variable
+
+    this->formula = formula;
+    selector = formula->next_var++;
+    degree = alpha;
+
+    if_var (positives, negatives);
+    if_pbexpr (positives, negatives);
+
+    return selector;
+  }
+};
+
 Formula::Formula (int k, std::string pbs_name) 
   : upper_bound {k}, pbs_name {pbs_name},
     predefined_literals {"MAXINT", "MININT", "TRUE"
