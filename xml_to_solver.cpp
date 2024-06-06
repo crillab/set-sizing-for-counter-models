@@ -6,6 +6,7 @@
 #include <iostream>
 #include <map>
 #include <numeric>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -22,6 +23,7 @@ class Formula {
   std::map<std::string, Definition *> comparison_handlers;
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
+  std::set<std::string> predefined_literals;
   std::stringstream pbs_body;
   std::string pbs_name;
   int next_var {1}, nbclauses {0};
@@ -32,12 +34,10 @@ class Formula {
   inline int constrain_gte (std::string &, std::string &);
   inline void construct_new_set (std::string &, int);
   inline void make_clause (std::vector<int> &&, int = 1, std::string = ">=");
-  inline void order_encode_range (int, int);
   
 public:
   Formula (int, std::string);
   ~Formula ();
-  inline void apply_order_encoding (bool = true);
   inline void explore_context (xml_node);
 
   friend struct Comparison;
@@ -98,7 +98,7 @@ struct Expression {
 struct Id : public Expression {
   inline std::string operator () (xml_node operand, Formula *formula) {
     std::string value {operand.attribute ("value").value ()};
-    if (!formula->sets.contains (value)) 
+    if (!formula->predefined_literals.contains (value) && !formula->sets.contains (value)) 
       { formula->construct_new_set (value, formula->upper_bound); }
 
     return value;
@@ -140,19 +140,45 @@ protected:
   }
 };
 
-// struct ElementOf : public Comparison {
-//   inline int operator () (xml_node comparison, Formula *formula) {
-//     get_operands (comparison, formula);
-//     if (operand2.empty ())
-//       { return -1; }
+struct ElementOf : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
 
-//     int non_empty {formula->next_var++};
-//     for (int sign : {-1, 1})
-//       { formula->make_clause ({sign * non_empty, -sign * formula->sets[operand2][0]}); }
+    auto non_empty_func
+      { [formula] (int start, int size, int flag) {
+	std::vector<int> variables (size);
+	std::iota (variables.begin (), variables.end (), start);
+	std::ranges::for_each (variables,
+			       [formula, flag] (int var)
+			       { formula->make_clause ({-var, flag}); });
+	variables.push_back (-flag);
+	formula->make_clause (std::move (variables));
+      }};
 
-//     return non_empty;
-//   }
-// };
+    int binding_var {formula->next_var++}, strictly_pos {}, non_empty_flag {};
+    
+    if (operand2 == "NAT1") {
+      strictly_pos = formula->next_var++;
+      non_empty_func (formula->sets[operand1][0], formula->sets[operand1][1], strictly_pos);
+    }
+
+    if (!formula->predefined_literals.contains (operand2)) {
+      if (strictly_pos > 0) {
+	non_empty_flag = formula->next_var++;
+	non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], non_empty_flag);
+	formula->make_clause ({binding_var, -strictly_pos, -non_empty_flag});
+	for (int conjunct : {strictly_pos, non_empty_flag})
+	  { formula->make_clause ({-binding_var, conjunct}); }
+      }
+      else
+	{ non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], binding_var); }
+    }
+
+    return binding_var;
+  }
+};
 
 // struct SubsetOf : public Comparison {
 //   inline int operator () (xml_node comparison, Formula *formula) {
@@ -363,19 +389,21 @@ struct NaryPred : public PredGroup {
 };
     
 Formula::Formula (int k, std::string pbs_name) 
-  : upper_bound {k}, pbs_name {pbs_name} {
-  // comparison_handlers[":"] = new ElementOf {};
-  // comparison_handlers["/:"] = new NotCompared {};
+  : upper_bound {k}, pbs_name {pbs_name},
+    predefined_literals {"MAXINT", "MININT", "TRUE"
+			 "NAT", "NAT1", "INT"} {
+  comparison_handlers[":"] = new ElementOf {};
+  comparison_handlers["/:"] = new NotCompared {};
   // comparison_handlers["<:"] = new SubsetOf {};
-  // comparison_handlers["/<:"] = new NotCompared {};
+  comparison_handlers["/<:"] = new NotCompared {};
   // comparison_handlers["<<:"] = new ProperSubsetOf {};
-  // comparison_handlers["/<<:"] = new NotCompared {};
+  comparison_handlers["/<<:"] = new NotCompared {};
   // comparison_handlers["="] = new Equality {};
-  // comparison_handlers["/="] = new NotCompared {};
+  comparison_handlers["/="] = new NotCompared {};
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
-  // definition_handlers["Exp_Comparison"] = new ExpComparison {};
+  definition_handlers["Exp_Comparison"] = new ExpComparison {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
@@ -448,8 +476,14 @@ void Formula::explore_context (xml_node proof_obligations) {
 	if (definition_handlers.contains (interior.name ())) {
 	  Definition *handler {definition_handlers[interior.name ()]};
 	  int flag {(*handler) (interior, this)};
-	  if (flag > 0 && std::string {"Set"} != interior.name ())
-	    { make_clause ({flag}); }
+	  if (flag > 0) {
+	    if (std::string {"Set"} != interior.name ())
+	      { make_clause ({flag}); }
+	  }
+	  else {
+	    interior.print (std::cout);
+	    abort ();
+	  }
 	}
 	else
 	  { std::cout << interior.name () << '\n'; }
@@ -483,7 +517,7 @@ int main (int argc, char **argv) {
   doc.load_file (argv[2]);
 
   formula.explore_context (doc.first_child ());
-  formula.print_pbs ();
+  // formula.print_pbs ();
 
   auto t2 {std::chrono::system_clock::now ()};
   std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
