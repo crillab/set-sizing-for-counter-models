@@ -128,7 +128,7 @@ struct EmptySet : public Expression {
     if (!formula->sets.contains ("{}")) {
       int var {formula->next_var++};
       formula->sets["{}"] = {var, 1};
-      formula->make_clause ({var}, 0, "=");
+      formula->make_clause ({-var});
     }
     return "{}";
   }
@@ -183,7 +183,9 @@ struct ElementOf : public Comparison {
     }
 
     if (!formula->predefined_literals.contains (operand2)) {
-      if (strictly_pos > 0) {
+      if (operand2.substr (0, std::string {"FIN("}.length ()) == "FIN(")
+	{}
+      else if (strictly_pos > 0) {
 	non_empty_flag = formula->next_var++;
 	non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], non_empty_flag);
 	formula->make_clause ({binding_var, -strictly_pos, -non_empty_flag});
@@ -452,7 +454,7 @@ int Formula::complement (int negandum) {
 
   make_clause ({-aux, negandum}, 1, "=");
 
-  return negandum;
+  return aux;
 }
 
 // int Formula::constrain_equality (std::string &op1, std::string &op2) { // MIGHT CHANGE
@@ -501,24 +503,26 @@ void Formula::explore_context (xml_node proof_obligations) {
 	      { make_clause ({flag}); }
 	  }
 	  else {
-	    interior.print (std::cout);
-	    abort ();
+	    // interior.print (std::cout);
+	    // abort ();
 	  }
 	}
 	else
-	  { std::cout << interior.name () << '\n'; }
+	  { /*std::cout << interior.name () << '\n';*/ }
       }
     }}
 }
 
 void Formula::make_clause (std::vector<int> &&literals, int degree, std::string comparison) {
   for (auto lit : literals) {
-    pbs_body << "+1 ";
     if (lit < 0) {
-      pbs_body << '~';
+      pbs_body << "-1 x";
+      --degree;
       lit *= -1;
     }
-    pbs_body << 'x' << lit << ' ';
+    else
+      { pbs_body << "+1 x"; }
+    pbs_body << lit << ' ';
   }
   pbs_body << comparison << ' ' << degree << ";\n";
   ++nbclauses;
@@ -536,10 +540,10 @@ int main (int argc, char **argv) {
   doc.load_file (argv[2]);
 
   formula.explore_context (doc.first_child ());
-  // formula.print_pbs ();
+  formula.print_pbs ();
 
   auto t2 {std::chrono::system_clock::now ()};
-  std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
+  // std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
   
   return 0;
 }
