@@ -29,7 +29,7 @@ class Formula {
   #endif
   std::stringstream pbs_body;
   std::string pbs_name;
-  int next_var {1}, nbclauses {0};
+  int next_var {1}, nbclauses {0}, nbequals {0};
   int upper_bound {};
 
   inline int complement (int);
@@ -86,6 +86,9 @@ public:
     return next_var;
   }
   void print_pbs () {
+    std::cout << "* #variable= " << next_var - 1
+	      << " #constraint= " << nbclauses
+	      << " #equal= " << nbequals << '\n';
     std::cout << pbs_body.str ();
   }
 };
@@ -150,23 +153,27 @@ class SetSizer {
     run_through (positives, '-');
 
     formula->pbs_body << ">= " << -positive_limits << ";\n";
+
+    ++formula->nbclauses;
   }
 
   inline void if_pbexpr (std::vector<std::string> &positives,
 			 std::vector<std::string> &negatives) {
-    // M := -(|neg| + α + 2)
+    // M := |neg| + α + 1
 
     run_through (positives, '+');
     run_through (negatives, '-');
 
     int negative_limits {get_limits (negatives)};
-    int M {-(negative_limits + degree + 2)};
+    int M {negative_limits + degree + 1};
     if (M > 0)
       { formula->pbs_body << '+' << M; }
     else
       { formula->pbs_body << M; }
     formula->pbs_body << " x" << selector
 		      << " >= " << degree + 1 << ";\n";
+
+    ++formula->nbclauses;
   }
 
 public:
@@ -638,7 +645,7 @@ Formula::~Formula () {
 inline void Formula::construct_new_set (std::string &name, int size) {
   int var {next_var};
   sets[name] = {var, size};
-  next_var = var + size + 1;
+  next_var = var + size;
 }
 
 int Formula::complement (int negandum) {
@@ -683,6 +690,8 @@ void Formula::explore_context (xml_node proof_obligations) {
 }
 
 void Formula::make_clause (std::vector<int> &&literals, int degree, std::string comparison) {
+  if (comparison == "=")
+    { ++nbequals; }
   for (auto lit : literals) {
     if (lit < 0) {
       pbs_body << "-1 x";
