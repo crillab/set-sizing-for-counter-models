@@ -46,6 +46,7 @@ public:
   friend struct ProperSubsetOf;
   friend struct Equality;
   friend struct NotCompared;
+  friend struct GreaterEqual;
   
   friend struct Set;
   friend struct BinaryPred;
@@ -199,6 +200,17 @@ struct ElementOf : public Comparison {
     }
 
     return binding_var;
+  }
+};
+
+struct GreaterEqual : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+    
+    SetSizer set_sizer {formula};
+    return set_sizer ({operand1}, {operand2}, 0);
   }
 };
 
@@ -441,7 +453,7 @@ class SetSizer {
     run_through (negatives, '+');
     run_through (positives, '-');
 
-    formula->pbs_body << ">= " << positive_limits << ";\n";
+    formula->pbs_body << ">= " << -positive_limits << ";\n";
   }
 
   inline void if_pbexpr (std::vector<std::string> &positives,
@@ -458,13 +470,14 @@ class SetSizer {
   }
 
 public:
+  SetSizer (Formula *formula) : formula {formula} {}
+  
   inline int operator () (std::vector<std::string> positives,
 			  std::vector<std::string> negatives,
-			  int alpha, Formula *formula) {
+			  int alpha) {
     // Always of the the form Σpos - Σneg <= α
     // Returns selector variable
 
-    this->formula = formula;
     selector = formula->next_var++;
     degree = alpha;
 
@@ -487,6 +500,7 @@ Formula::Formula (int k, std::string pbs_name)
   comparison_handlers["/<<:"] = new NotCompared {};
   // comparison_handlers["="] = new Equality {};
   comparison_handlers["/="] = new NotCompared {};
+  comparison_handlers[">=i"] = new GreaterEqual {};
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
@@ -569,12 +583,12 @@ void Formula::explore_context (xml_node proof_obligations) {
 	      { make_clause ({flag}); }
 	  }
 	  else {
-	    // interior.print (std::cout);
-	    // abort ();
+	    interior.print (std::cout);
+	    abort ();
 	  }
 	}
 	else
-	  { /*std::cout << interior.name () << '\n';*/ }
+	  { std::cout << interior.name () << '\n'; }
       }
     }}
 }
