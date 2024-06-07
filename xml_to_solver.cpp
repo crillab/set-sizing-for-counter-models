@@ -271,6 +271,25 @@ struct ElementOf : public Comparison {
   }
 };
 
+struct Equality : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+
+    SetSizer set_sizer {formula};
+    int forwards {set_sizer ({operand1}, {operand2}, 0)};
+    int backwards {set_sizer ({operand2}, {operand1}, 0)};
+
+    int equality {formula->next_var++};
+    for (int dir : {forwards, backwards})
+      { formula->make_clause ({-equality, dir}); }
+    formula->make_clause ({-forwards, -backwards, equality});
+
+    return equality;
+  }
+};
+
 struct GreaterEqual : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     get_operands (comparison, formula);
@@ -314,44 +333,6 @@ struct LessEqual : public Comparison {
     return set_sizer ({operand2}, {operand1}, 0);
   }
 };
-
-// struct SubsetOf : public Comparison {
-//   inline int operator () (xml_node comparison, Formula *formula) {
-//     get_operands (comparison, formula);
-//     if (operand1.empty () || operand2.empty ())
-//       { return -1; }
-//     return formula->constrain_gte (operand2, operand1);
-//   }
-// };
-
-// struct ProperSubsetOf : public Comparison {
-//   inline int operator () (xml_node comparison, Formula *formula) {
-//     get_operands (comparison, formula);
-//     if (operand1.empty () || operand2.empty ())
-//       { return -1; }
-    
-//     int subset {formula->constrain_gte (operand2, operand1)};
-//     int not_equal {formula->complement (formula->constrain_equality (operand1, operand2))};
-//     int proper_subset {formula->next_var++};
-
-//     for (int orig : {subset, not_equal})
-//       { formula->make_clause ({-proper_subset, orig}); }
-//     formula->make_clause ({-subset, -not_equal, proper_subset});
-
-//     return proper_subset;
-//   }
-// };
-    
-// struct Equality : public Comparison {
-//   inline int operator () (xml_node comparison, Formula *formula) {
-//     if (comparison.first_child ().attribute ("typref").as_int () == 1)
-//       { return -1; }
-//     get_operands (comparison, formula);
-//     if (operand1.empty () || operand2.empty ())
-//       { return -1; }
-//     return formula->constrain_equality (operand1, operand2);
-//   }
-// };
 
 struct NotCompared : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
@@ -530,11 +511,11 @@ Formula::Formula (int k, std::string pbs_name)
 			 "NAT", "NAT1", "INT"} {
   comparison_handlers[":"] = new ElementOf {};
   comparison_handlers["/:"] = new NotCompared {};
-  // comparison_handlers["<:"] = new SubsetOf {};
+  comparison_handlers["<:"] = new LessEqual {};
   comparison_handlers["/<:"] = new NotCompared {};
-  // comparison_handlers["<<:"] = new ProperSubsetOf {};
+  comparison_handlers["<<:"] = new LessThan {};
   comparison_handlers["/<<:"] = new NotCompared {};
-  // comparison_handlers["="] = new Equality {};
+  comparison_handlers["="] = new Equality {};
   comparison_handlers["/="] = new NotCompared {};
   comparison_handlers[">=i"] = new GreaterEqual {};
   comparison_handlers[">i"] = new GreaterThan {};
