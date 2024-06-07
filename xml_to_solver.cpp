@@ -451,29 +451,11 @@ struct Set : public Definition {
   }
 };
   
-struct PredGroup : public Definition {
-protected:
-  inline bool skip_test (xml_node predicate) {
-    bool skip
-      {
-	false && (
-	// Deal with only POW (Z) and Z
-	std::ranges::any_of (predicate.children (),
-			     [] (auto child) { return child.attribute ("typref").as_int () > INTEGER; }) ||
-	// Need some sets
-	std::ranges::all_of (predicate.children (),
-			     [] (auto child) { return child.attribute ("typref").as_int () == INTEGER; }) ||
-	// Skip x = min (x)..max (x)
-	convexity_constraint (predicate))
-      };
-    return skip;
-  }
-};
+struct PredGroup : public Definition {};
 
 struct BinaryPred : public PredGroup {
   inline int operator () (xml_node predicate, Formula *formula) {
-    if (skip_test (predicate) ||
-	std::ranges::any_of (predicate.children (),
+    if (std::ranges::any_of (predicate.children (),
 			     [formula] (xml_node child) 
 			     { return !formula->definition_handlers.contains (child.name ()); }))
       { return -1; }
@@ -520,9 +502,6 @@ struct BinaryPred : public PredGroup {
   
 struct ExpComparison : public PredGroup {
   inline int operator () (xml_node comparison, Formula *formula) {
-    if (skip_test (comparison))
-      { return -1; }
-
     std::string op {comparison.attribute ("op").value ()};
     if (!formula->comparison_handlers.contains (op))
       { return -1; }
@@ -531,12 +510,9 @@ struct ExpComparison : public PredGroup {
     return (*handler) (comparison, formula);
   }
 };
-
+    
 struct UnaryPred : public PredGroup {
   inline int operator () (xml_node predicate, Formula *formula) {
-    if (skip_test (predicate))
-      { return -1; }
-
     xml_node child {predicate.first_child ()};
     if (!formula->definition_handlers.contains (child.name ()))
       { return -1; }
@@ -553,8 +529,7 @@ struct UnaryPred : public PredGroup {
 
 struct NaryPred : public PredGroup {
   inline int operator () (xml_node predicate, Formula *formula) {
-    if (skip_test (predicate) ||
-	std::ranges::any_of (predicate.children (),
+    if (std::ranges::any_of (predicate.children (),
 			     [formula] (xml_node child) 
 			     { return !formula->definition_handlers.contains (child.name ()); }))
       { return -1; }
