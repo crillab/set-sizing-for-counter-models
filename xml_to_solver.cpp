@@ -122,8 +122,12 @@ class SetSizer {
     // M := -α + |pos|
 
     int positive_limits {get_limits (positives)};
-    formula->pbs_body << '+' << (degree - positive_limits)
-		      << " x" << selector << ' ';
+    int M {degree - positive_limits};
+    if (M > 0)
+      { formula->pbs_body << '+' << M; }
+    else
+      { formula->pbs_body << M; }
+    formula->pbs_body << " x" << selector << ' ';
 
     run_through (negatives, '+');
     run_through (positives, '-');
@@ -139,8 +143,12 @@ class SetSizer {
     run_through (negatives, '-');
 
     int negative_limits {get_limits (negatives)};
-    formula->pbs_body << -(negative_limits + degree + 2)
-		      << " x" << selector
+    int M {-(negative_limits + degree + 2)};
+    if (M > 0)
+      { formula->pbs_body << '+' << M; }
+    else
+      { formula->pbs_body << M; }
+    formula->pbs_body << " x" << selector
 		      << " >= " << degree + 1 << ";\n";
   }
 
