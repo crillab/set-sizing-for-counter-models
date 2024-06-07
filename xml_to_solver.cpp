@@ -142,8 +142,8 @@ class SetSizer {
     // M := -α + |pos|
 
     int positive_limits {get_limits (positives)};
-    int M {degree - positive_limits};
-    if (M > 0)
+    int M {-(degree - positive_limits)};
+    if (M >= 0)
       { formula->pbs_body << '+' << M; }
     else
       { formula->pbs_body << M; }
@@ -166,7 +166,7 @@ class SetSizer {
 
     int negative_limits {get_limits (negatives)};
     int M {negative_limits + degree + 1};
-    if (M > 0)
+    if (M >= 0)
       { formula->pbs_body << '+' << M; }
     else
       { formula->pbs_body << M; }
@@ -206,7 +206,7 @@ public:
 
     if_var (positives, negatives);
     if_pbexpr (positives, negatives);
-
+    
     return selector;
   }
 };
@@ -377,7 +377,7 @@ struct GreaterEqual : public Comparison {
       { return -1; }
     
     SetSizer set_sizer {formula};
-    return set_sizer ({operand1}, {operand2}, 0);
+    return set_sizer ({operand2}, {operand1}, 0);
   }
 };
 
@@ -388,7 +388,7 @@ struct GreaterThan : public Comparison {
       { return -1; }
 
     SetSizer set_sizer {formula};
-    return set_sizer ({operand1}, {operand2}, 1);
+    return set_sizer ({operand2}, {operand1}, -1); 
   }
 };
 
@@ -399,7 +399,7 @@ struct LessThan : public Comparison {
       { return -1; }
 
     SetSizer set_sizer {formula};
-    return set_sizer ({operand2}, {operand1}, 1);
+    return set_sizer ({operand1}, {operand2}, -1); 
   }
 };
 
@@ -410,7 +410,7 @@ struct LessEqual : public Comparison {
       { return -1; }
 
     SetSizer set_sizer {formula};
-    return set_sizer ({operand2}, {operand1}, 0);
+    return set_sizer ({operand1}, {operand2}, 0); 
   }
 };
 
