@@ -24,6 +24,9 @@ class Formula {
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
   std::set<std::string> predefined_literals;
+  #ifdef AUX_MESSAGE
+  std::map<int, std::string> aux_vars;
+  #endif
   std::stringstream pbs_body;
   std::string pbs_name;
   int next_var {1}, nbclauses {0};
@@ -39,7 +42,22 @@ public:
   Formula (int, std::string);
   ~Formula ();
   inline void explore_context (xml_node);
+  #ifdef AUX_MESSAGE
+  int make_aux_var (std::string message) {
+    int aux {next_var++};
+    aux_vars[aux] = message;
+    return aux;
+  }
 
+  void list_aux () {
+    std::cout << "Auxiliaries:\n";
+    for (auto &[left, right] : aux_vars) {
+      std::cout << left << ":\n";
+      std::cout << right << "\n\n";
+    }
+  }
+  #endif
+  
   friend struct Comparison;
   friend struct ElementOf;
   friend struct SubsetOf;
@@ -70,7 +88,6 @@ public:
   void print_pbs () {
     std::cout << pbs_body.str ();
   }
-  int predicates {0};
 };
 
 inline bool convexity_constraint (xml_node comparison) {
@@ -161,7 +178,23 @@ public:
     // Always of the the form Σpos - Σneg <= α
     // Returns selector variable
 
+    #ifdef AUX_MESSAGE
+    std::string message {"SetSizer\n"};
+    for (std::string &name : positives)
+      { message += "+ " + name + " "; }
+    message += "\n";
+    for (std::string &name : negatives)
+      { message += "- " + name + " "; }
+    message += "\n";
+    message += "α = " + std::to_string (alpha);
+
+    selector = formula->make_aux_var (message);
+    
+    #else
     selector = formula->next_var++;
+
+    #endif
+    
     degree = alpha;
 
     if_var (positives, negatives);
@@ -254,10 +287,25 @@ struct ElementOf : public Comparison {
 	formula->make_clause (std::move (variables));
       }};
 
+    #ifdef AUX_MESSAGE
+    std::string message {operand1 + " : " + operand2};
+    int binding_var {formula->make_aux_var (message)}, strictly_pos {}, non_empty_flag {};
+
+    #else
     int binding_var {formula->next_var++}, strictly_pos {}, non_empty_flag {};
+
+    #endif
     
     if (operand2 == "NAT1") {
+      #ifdef AUX_MESSAGE
+      message = operand1 + " > 0";
+      strictly_pos = formula->make_aux_var (message);
+
+      #else
       strictly_pos = formula->next_var++;
+
+      #endif
+      
       non_empty_func (formula->sets[operand1][0], formula->sets[operand1][1], strictly_pos);
     }
 
@@ -265,7 +313,15 @@ struct ElementOf : public Comparison {
       if (operand2.substr (0, std::string {"FIN("}.length ()) == "FIN(")
 	{}
       else if (strictly_pos > 0) {
+	#ifdef AUX_MESSAGE
+	message = operand2 + " /= {}";
+	non_empty_flag = formula->make_aux_var (message);
+
+	#else
 	non_empty_flag = formula->next_var++;
+
+	#endif
+	
 	non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], non_empty_flag);
 	formula->make_clause ({binding_var, -strictly_pos, -non_empty_flag});
 	for (int conjunct : {strictly_pos, non_empty_flag})
@@ -281,6 +337,7 @@ struct ElementOf : public Comparison {
 
 struct Equality : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
+    // Currently only works for comparing integers although the operator is overloaded in Atelier B.
     get_operands (comparison, formula);
     if (operand2.empty ())
       { return -1; }
@@ -289,7 +346,15 @@ struct Equality : public Comparison {
     int forwards {set_sizer ({operand1}, {operand2}, 0)};
     int backwards {set_sizer ({operand2}, {operand1}, 0)};
 
+    #ifdef AUX_MESSAGE
+    std::string message {operand1 + " = " + operand2};
+    int equality {formula->make_aux_var (message)};
+
+    #else
     int equality {formula->next_var++};
+
+    #endif
+    
     for (int dir : {forwards, backwards})
       { formula->make_clause ({-equality, dir}); }
     formula->make_clause ({-forwards, -backwards, equality});
@@ -420,8 +485,16 @@ struct BinaryPred : public PredGroup {
     if (std::any_of (variables.begin (), std::next (variables.begin (), 2),
 		     [] (int x) { return x < 0; }))
       { return -1; }
-    
+
+    #ifdef AUX_MESSAGE
+    std::string message {std::to_string (variables[0]) + predicate.attribute ("op").value () + std::to_string (variables[1])};
+    int binary_pred {formula->make_aux_var (message)};
+
+    #else
     int binary_pred {formula->next_var++};
+
+    #endif
+    
     variables[2] = binary_pred;
 
     if (predicate.attribute ("op").value ()[0] != '<') {
@@ -490,7 +563,18 @@ struct NaryPred : public PredGroup {
       juncts.push_back (junct);
     }
 
+    #ifdef AUX_MESSAGE
+    std::string message {"("};
+    message += predicate.attribute ("op").value ();
+    for (int el : juncts)
+      { message += " " + std::to_string (el); }
+    message += ")";
+    int junction_var {formula->make_aux_var (message)};
+
+    #else
     int junction_var {formula->next_var++};
+
+    #endif
     
     if (std::string {"&"} == predicate.attribute ("op").value ()) {
       std::ranges::for_each (juncts,
@@ -558,42 +642,19 @@ inline void Formula::construct_new_set (std::string &name, int size) {
 }
 
 int Formula::complement (int negandum) {
+  #ifdef AUX_MESSAGE
+  std::string message {"¬" + std::to_string (negandum)};
+  int aux {make_aux_var (message)};
+
+  #else
   int aux {next_var++};
+
+  #endif
 
   make_clause ({-aux, negandum}, 1, "=");
 
   return aux;
 }
-
-// int Formula::constrain_equality (std::string &op1, std::string &op2) { // MIGHT CHANGE
-//   std::array<int, 2> operand1 {sets[op1]};
-//   std::array<int, 2> operand2 {sets[op2]};
-//   int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]}; // Only up to the size of the smaller one.
-
-//   int aux {next_var++};
-  
-//   for (int i {0}; i <= max; ++i) {
-//     for (int aux_sign : {-1, 1}) {
-//       for (int var_sign : {-1, 1})
-// 	{ make_clause ({aux_sign * aux, var_sign * (operand1[0] + i), -var_sign * (operand2[0])}); }
-//     }
-//   }
-
-//   return aux;
-// }
-
-// int Formula::constrain_gte (std::string &op1, std::string &op2) {
-//   std::array<int, 2> operand1 {sets[op1]};
-//   std::array<int, 2> operand2 {sets[op2]};
-//   int max {operand1[1] < operand2[1] ? operand1[1] : operand2[1]};
-
-//   int aux {next_var++};
-
-//   for (int i {0}; i <= max; ++i)
-//     { make_clause ({-(operand1[0] + i), operand2[0] + i}); }
-
-//   return aux;
-// }
 
 void Formula::explore_context (xml_node proof_obligations) {
   for (xml_node definition : proof_obligations.children ()) {
@@ -611,12 +672,12 @@ void Formula::explore_context (xml_node proof_obligations) {
 	      { make_clause ({flag}); }
 	  }
 	  else {
-	    interior.print (std::cout);
+	    interior.print (std::cerr);
 	    abort ();
 	  }
 	}
 	else
-	  { std::cout << interior.name () << '\n'; }
+	  { std::cerr << interior.name () << '\n'; }
       }
     }}
 }
@@ -650,8 +711,12 @@ int main (int argc, char **argv) {
   formula.explore_context (doc.first_child ());
   formula.print_pbs ();
 
+  #ifdef AUX_MESSAGE
+  formula.list_aux ();
+  #endif
+
   auto t2 {std::chrono::system_clock::now ()};
-  // std::cout << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
+  std::clog << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
   
   return 0;
 }
