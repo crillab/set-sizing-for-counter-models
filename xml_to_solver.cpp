@@ -47,6 +47,9 @@ public:
   friend struct Equality;
   friend struct NotCompared;
   friend struct GreaterEqual;
+  friend struct GreaterThan;
+  friend struct LessThan;
+  friend struct LessEqual;
   
   friend struct Set;
   friend struct BinaryPred;
@@ -94,6 +97,71 @@ std::string get_pbs_file_name (char *pog_name) {
   read_in_file.replace (read_in_file.rfind ("pog"), 3, "pbs");
   return read_in_file;
 }
+
+class SetSizer {
+  Formula *formula;
+  int degree;
+  int selector;
+
+  int get_limits (std::vector<std::string> &V) {
+    return std::accumulate (V.begin (), V.end (), 0,
+			    [this] (int acc, std::string &name)
+			    { return acc + formula->sets[name][1]; });
+  }
+			     
+  void run_through (std::vector<std::string> &V, char sign) {
+    for (auto &el_of_v : V) {
+      int var {formula->sets[el_of_v][0]};
+      for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
+	{ formula->pbs_body << sign << "1 x" << var++ << ' '; }
+    }
+  }
+	
+  inline void if_var (std::vector<std::string> &positives,
+		      std::vector<std::string> &negatives) {
+    // M := -α + |pos|
+
+    int positive_limits {get_limits (positives)};
+    formula->pbs_body << '+' << (degree - positive_limits)
+		      << " x" << selector << ' ';
+
+    run_through (negatives, '+');
+    run_through (positives, '-');
+
+    formula->pbs_body << ">= " << -positive_limits << ";\n";
+  }
+
+  inline void if_pbexpr (std::vector<std::string> &positives,
+			 std::vector<std::string> &negatives) {
+    // M := -(|neg| + α + 2)
+
+    run_through (positives, '+');
+    run_through (negatives, '-');
+
+    int negative_limits {get_limits (negatives)};
+    formula->pbs_body << -(negative_limits + degree + 2)
+		      << " x" << selector
+		      << " >= " << degree + 1 << ";\n";
+  }
+
+public:
+  SetSizer (Formula *formula) : formula {formula} {}
+  
+  inline int operator () (std::vector<std::string> positives,
+			  std::vector<std::string> negatives,
+			  int alpha) {
+    // Always of the the form Σpos - Σneg <= α
+    // Returns selector variable
+
+    selector = formula->next_var++;
+    degree = alpha;
+
+    if_var (positives, negatives);
+    if_pbexpr (positives, negatives);
+
+    return selector;
+  }
+};
 
 struct Expression {
   virtual std::string operator () (xml_node, Formula *) = 0;
@@ -214,6 +282,39 @@ struct GreaterEqual : public Comparison {
   }
 };
 
+struct GreaterThan : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+
+    SetSizer set_sizer {formula};
+    return set_sizer ({operand1}, {operand2}, 1);
+  }
+};
+
+struct LessThan : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+
+    SetSizer set_sizer {formula};
+    return set_sizer ({operand2}, {operand1}, 1);
+  }
+};
+
+struct LessEqual : public Comparison {
+  inline int operator () (xml_node comparison, Formula *formula) {
+    get_operands (comparison, formula);
+    if (operand2.empty ())
+      { return -1; }
+
+    SetSizer set_sizer {formula};
+    return set_sizer ({operand2}, {operand1}, 0);
+  }
+};
+
 // struct SubsetOf : public Comparison {
 //   inline int operator () (xml_node comparison, Formula *formula) {
 //     get_operands (comparison, formula);
@@ -294,7 +395,7 @@ protected:
   inline bool skip_test (xml_node predicate) {
     bool skip
       {
-	false && 
+	false && (
 	// Deal with only POW (Z) and Z
 	std::ranges::any_of (predicate.children (),
 			     [] (auto child) { return child.attribute ("typref").as_int () > INTEGER; }) ||
@@ -302,7 +403,7 @@ protected:
 	std::ranges::all_of (predicate.children (),
 			     [] (auto child) { return child.attribute ("typref").as_int () == INTEGER; }) ||
 	// Skip x = min (x)..max (x)
-	convexity_constraint (predicate)
+	convexity_constraint (predicate))
       };
     return skip;
   }
@@ -423,71 +524,6 @@ struct NaryPred : public PredGroup {
   }
 };
 
-class SetSizer {
-  Formula *formula;
-  int degree;
-  int selector;
-
-  int get_limits (std::vector<std::string> &V) {
-    return std::accumulate (V.begin (), V.end (), 0,
-			    [this] (int acc, std::string &name)
-			    { return acc + formula->sets[name][1]; });
-  }
-			     
-  void run_through (std::vector<std::string> &V, char sign) {
-    for (auto &el_of_v : V) {
-      int var {formula->sets[el_of_v][0]};
-      for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
-	{ formula->pbs_body << sign << "1 x" << var++ << ' '; }
-    }
-  }
-	
-  inline void if_var (std::vector<std::string> &positives,
-		      std::vector<std::string> &negatives) {
-    // M := -α + |pos|
-
-    int positive_limits {get_limits (positives)};
-    formula->pbs_body << '+' << (degree - positive_limits)
-		      << " x" << selector << ' ';
-
-    run_through (negatives, '+');
-    run_through (positives, '-');
-
-    formula->pbs_body << ">= " << -positive_limits << ";\n";
-  }
-
-  inline void if_pbexpr (std::vector<std::string> &positives,
-			 std::vector<std::string> &negatives) {
-    // M := -(|neg| + α + 2)
-
-    run_through (positives, '+');
-    run_through (negatives, '-');
-
-    int negative_limits {get_limits (negatives)};
-    formula->pbs_body << -(negative_limits + degree + 2)
-		      << " x" << selector
-		      << " >= " << degree + 1 << ";\n";
-  }
-
-public:
-  SetSizer (Formula *formula) : formula {formula} {}
-  
-  inline int operator () (std::vector<std::string> positives,
-			  std::vector<std::string> negatives,
-			  int alpha) {
-    // Always of the the form Σpos - Σneg <= α
-    // Returns selector variable
-
-    selector = formula->next_var++;
-    degree = alpha;
-
-    if_var (positives, negatives);
-    if_pbexpr (positives, negatives);
-
-    return selector;
-  }
-};
-
 Formula::Formula (int k, std::string pbs_name) 
   : upper_bound {k}, pbs_name {pbs_name},
     predefined_literals {"MAXINT", "MININT", "TRUE"
@@ -501,6 +537,9 @@ Formula::Formula (int k, std::string pbs_name)
   // comparison_handlers["="] = new Equality {};
   comparison_handlers["/="] = new NotCompared {};
   comparison_handlers[">=i"] = new GreaterEqual {};
+  comparison_handlers[">i"] = new GreaterThan {};
+  comparison_handlers["<i"] = new LessThan {};
+  comparison_handlers["<=i"] = new LessEqual {};
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
