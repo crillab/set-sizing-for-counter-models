@@ -24,6 +24,7 @@ class Formula {
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
   std::set<std::string> predefined_literals;
+  std::set<std::string> bound_variables;
   #ifdef AUX_MESSAGE
   std::map<int, std::string> aux_vars;
   #endif
@@ -72,6 +73,7 @@ public:
   friend struct Set;
   friend struct BinaryPred;
   friend struct ExpComparison;
+  friend struct QuantifiedPred;
   friend struct UnaryPred;
   friend struct NaryPred;
 
@@ -218,7 +220,7 @@ struct Expression {
 struct Id : public Expression {
   inline std::string operator () (xml_node operand, Formula *formula) {
     std::string value {operand.attribute ("value").value ()};
-    if (!formula->predefined_literals.contains (value) && !formula->sets.contains (value)) 
+    if (!formula->predefined_literals.contains (value) && !formula->bound_variables.contains (value) && !formula->sets.contains (value)) 
       { formula->construct_new_set (value, formula->upper_bound); }
 
     return value;
@@ -510,6 +512,25 @@ struct ExpComparison : public PredGroup {
     return (*handler) (comparison, formula);
   }
 };
+
+struct QuantifiedPred : public PredGroup {
+  inline int operator () (xml_node quantification, Formula *formula) {
+    if (std::string {"!"} == quantification.attribute ("type").value ())
+      { return -1; } // Universal quantification
+
+    std::ranges::for_each (quantification.first_child ().children (),
+			   [formula] (xml_node var)
+			   { formula->bound_variables.insert (var.attribute ("value").value ()); });
+    xml_node body {quantification.child ("Body").first_child ()};
+
+    Definition *handler {formula->definition_handlers[body.name ()]};
+    int pred_val {(*handler) (body, formula)};
+    
+    formula->bound_variables.clear ();
+    
+    return pred_val;
+  }
+};
     
 struct UnaryPred : public PredGroup {
   inline int operator () (xml_node predicate, Formula *formula) {
@@ -599,6 +620,7 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
   definition_handlers["Exp_Comparison"] = new ExpComparison {};
+  definition_handlers["Quantified_Pred"] = new QuantifiedPred {};
   definition_handlers["Unary_Pred"] = new UnaryPred {};
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
