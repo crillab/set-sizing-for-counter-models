@@ -51,10 +51,10 @@ public:
   }
 
   void list_aux () {
-    std::cout << "Auxiliaries:\n";
+    std::clog << "Auxiliaries:\n";
     for (auto &[left, right] : aux_vars) {
-      std::cout << left << ":\n";
-      std::cout << right << "\n\n";
+      std::clog << left << ":\n";
+      std::clog << right << "\n\n";
     }
   }
   #endif
@@ -141,10 +141,10 @@ class SetSizer {
 	
   inline void if_var (std::vector<std::string> &positives,
 		      std::vector<std::string> &negatives) {
-    // M := -α + |pos|
+    // M := α - |pos|
 
     int positive_limits {get_limits (positives)};
-    int M {-(degree - positive_limits)};
+    int M {degree - positive_limits};
     if (M >= 0)
       { formula->pbs_body << '+' << M; }
     else
@@ -220,7 +220,9 @@ struct Expression {
 struct Id : public Expression {
   inline std::string operator () (xml_node operand, Formula *formula) {
     std::string value {operand.attribute ("value").value ()};
-    if (!formula->predefined_literals.contains (value) && !formula->bound_variables.contains (value) && !formula->sets.contains (value)) 
+    if (!formula->predefined_literals.contains (value)
+	&& !formula->bound_variables.contains (value)
+	&& !formula->sets.contains (value)) 
       { formula->construct_new_set (value, formula->upper_bound); }
 
     return value;
@@ -280,11 +282,36 @@ protected:
 };
 
 struct ElementOf : public Comparison {
+private:
+  std::set<std::string> relational
+  {"+->", "+->>", "-->", "-->>", "<+", "<->", "<<|", "<|", ">+>", ">->", ">->>", "><"};
+
+public:
   inline int operator () (xml_node comparison, Formula *formula) {
+    xml_node second_child {comparison.first_child ().next_sibling ()};
+    if (std::string {"Binary_Exp"} == second_child.name ()
+	&& relational.contains (second_child.attribute ("op").value ())) {
+      std::string op {second_child.attribute ("op").value ()};
+      if (!formula->comparison_handlers.contains (op))
+	{ return -1; }
+
+      Definition *handler {formula->comparison_handlers[op]};
+      return (*handler) (second_child, formula);
+    }
+
     get_operands (comparison, formula);
     if (operand2.empty ())
       { return -1; }
 
+    #ifdef AUX_MESSAGE
+    std::string message {operand1 + " : " + operand2};
+    int binding_var {formula->make_aux_var (message)}, strictly_pos {}, non_empty_flag {};
+
+    #else
+    int binding_var {formula->next_var++};
+
+    #endif
+    
     auto non_empty_func
       { [formula] (int start, int size, int flag) {
 	std::vector<int> variables (size);
@@ -295,47 +322,15 @@ struct ElementOf : public Comparison {
 	variables.push_back (-flag);
 	formula->make_clause (std::move (variables));
       }};
-
-    #ifdef AUX_MESSAGE
-    std::string message {operand1 + " : " + operand2};
-    int binding_var {formula->make_aux_var (message)}, strictly_pos {}, non_empty_flag {};
-
-    #else
-    int binding_var {formula->next_var++}, strictly_pos {}, non_empty_flag {};
-
-    #endif
     
     if (operand2 == "NAT1") {
-      #ifdef AUX_MESSAGE
-      message = operand1 + " > 0";
-      strictly_pos = formula->make_aux_var (message);
-
-      #else
-      strictly_pos = formula->next_var++;
-
-      #endif
-      
-      non_empty_func (formula->sets[operand1][0], formula->sets[operand1][1], strictly_pos);
+      non_empty_func (formula->sets[operand1][0], formula->sets[operand1][1], binding_var);
+      return binding_var;
     }
 
     if (!formula->predefined_literals.contains (operand2)) {
       if (operand2.substr (0, std::string {"FIN("}.length ()) == "FIN(")
 	{}
-      else if (strictly_pos > 0) {
-	#ifdef AUX_MESSAGE
-	message = operand2 + " /= {}";
-	non_empty_flag = formula->make_aux_var (message);
-
-	#else
-	non_empty_flag = formula->next_var++;
-
-	#endif
-	
-	non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], non_empty_flag);
-	formula->make_clause ({binding_var, -strictly_pos, -non_empty_flag});
-	for (int conjunct : {strictly_pos, non_empty_flag})
-	  { formula->make_clause ({-binding_var, conjunct}); }
-      }
       else
 	{ non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], binding_var); }
     }
@@ -616,6 +611,8 @@ Formula::Formula (int k, std::string pbs_name)
   comparison_handlers[">i"] = new GreaterThan {};
   comparison_handlers["<i"] = new LessThan {};
   comparison_handlers["<=i"] = new LessEqual {};
+
+  comparison_handlers[">->>"] = new Equality {};
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
@@ -673,7 +670,9 @@ void Formula::explore_context (xml_node proof_obligations) {
 	  int flag {(*handler) (interior, this)};
 	  if (flag > 0) {
 	    if (std::string {"Set"} != interior.name ())
+	      { std::clog << flag << '\n';
 	      { make_clause ({flag}); }
+	      }
 	  }
 	  else {
 	    interior.print (std::cerr);
