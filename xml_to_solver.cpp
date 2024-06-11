@@ -33,6 +33,7 @@ class Formula {
   std::string pbs_name;
   int next_var {1}, nbclauses {0}, nbequals {0}, intsize {0};
   int upper_bound {};
+  bool int_literals {false};
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
@@ -79,8 +80,10 @@ public:
   friend struct NaryPred;
 
   friend struct UnaryExp;
+  friend struct BooleanLiteral;
   friend struct EmptySet;
   friend struct Id;
+  friend struct IntegerLiteral;
 
   friend class SetSizer;
   
@@ -241,6 +244,32 @@ struct Id : public Expression {
   }
 };
 
+struct IntegerLiteral : public Expression {
+  inline std::string operator () (xml_node operand, Formula *formula) {
+    int value {operand.attribute ("value").as_int ()};
+    if (value < 0) {
+      std::cerr << "Negative integer!\n";
+      return "";
+    }
+
+    int var;
+    if (!formula->int_literals) {
+      var = formula->next_var;
+      std::string name {"small_pos_integers"};
+      formula->construct_new_set (name, formula->upper_bound + 1);
+      for (int i {0}; i < formula->upper_bound + 1; ++i)
+	{ formula->make_clause ({var + i}); }
+    }
+    else
+      { var = formula->sets["small_pos_integers"][0]; }
+    
+    std::string val_as_str {std::to_string (value)};
+    if (!formula->sets.contains (val_as_str)) 
+      { formula->sets[val_as_str] = {var, value < formula->upper_bound ? value : formula->upper_bound}; }
+    return val_as_str;
+  }
+};
+
 struct UnaryExp : public Expression {
   inline std::string operator () (xml_node expression, Formula *formula) {
     xml_node child {expression.first_child ()};
@@ -257,7 +286,7 @@ struct UnaryExp : public Expression {
     return "";
   }
 };
-
+   
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
     if (!formula->sets.contains ("{}")) {
@@ -269,6 +298,24 @@ struct EmptySet : public Expression {
   }
 };
 
+struct BooleanLiteral : public Expression {
+  inline std::string operator () (xml_node literal, Formula *formula) {
+    std::string polarity {literal.attribute ("value").value ()};
+    if (polarity == "TRUE") {
+      if (!formula->sets.contains (polarity)) {
+	int var {formula->next_var++};
+	formula->sets["TRUE"] = {var, 1};
+	formula->make_clause ({var});
+      }
+      return "TRUE";
+    }
+    else {
+      EmptySet falsehood;
+      return falsehood (literal, formula);
+    }
+  }
+};
+ 
 struct Definition {
   virtual int operator () (xml_node, Formula *) = 0;
 };
@@ -634,8 +681,10 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["Unary_Exp"] = new UnaryExp {};
+  operand_handlers["Boolean_Literal"] = new BooleanLiteral {};
   operand_handlers["EmptySet"] = new EmptySet {};
   operand_handlers["Id"] = new Id {};
+  operand_handlers["Integer_Literal"] = new IntegerLiteral {};
 }
 
 Formula::~Formula () {
