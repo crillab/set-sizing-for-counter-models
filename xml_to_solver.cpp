@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <iostream>
 #include <map>
 #include <numeric>
@@ -30,7 +31,7 @@ class Formula {
   #endif
   std::stringstream pbs_body;
   std::string pbs_name;
-  int next_var {1}, nbclauses {0}, nbequals {0};
+  int next_var {1}, nbclauses {0}, nbequals {0}, intsize {0};
   int upper_bound {};
 
   inline int complement (int);
@@ -90,7 +91,8 @@ public:
   void print_pbs () {
     std::cout << "* #variable= " << next_var - 1
 	      << " #constraint= " << nbclauses
-	      << " #equal= " << nbequals << '\n';
+	      << " #equal= " << nbequals
+	      << " intsize= " << intsize << '\n';
     std::cout << pbs_body.str ();
   }
 };
@@ -157,6 +159,11 @@ class SetSizer {
     formula->pbs_body << ">= " << -positive_limits << ";\n";
 
     ++formula->nbclauses;
+
+    int size {abs (M) + get_limits (negatives) + (positive_limits << 1)};
+    size = (int) (log2 (size));
+    if (++size > formula->intsize)
+      { formula->intsize = size; }
   }
 
   inline void if_pbexpr (std::vector<std::string> &positives,
@@ -176,6 +183,11 @@ class SetSizer {
 		      << " >= " << degree + 1 << ";\n";
 
     ++formula->nbclauses;
+
+    int size {get_limits (positives) + (negative_limits + abs (degree + 1) << 1)};
+    size = (int) (log2 (size));
+    if (++size > formula->intsize)
+      { formula->intsize = size; }
   }
 
 public:
@@ -305,7 +317,7 @@ public:
 
     #ifdef AUX_MESSAGE
     std::string message {operand1 + " : " + operand2};
-    int binding_var {formula->make_aux_var (message)}, strictly_pos {}, non_empty_flag {};
+    int binding_var {formula->make_aux_var (message)};
 
     #else
     int binding_var {formula->next_var++};
@@ -670,9 +682,7 @@ void Formula::explore_context (xml_node proof_obligations) {
 	  int flag {(*handler) (interior, this)};
 	  if (flag > 0) {
 	    if (std::string {"Set"} != interior.name ())
-	      { std::clog << flag << '\n';
 	      { make_clause ({flag}); }
-	      }
 	  }
 	  else {
 	    interior.print (std::cerr);
@@ -686,9 +696,12 @@ void Formula::explore_context (xml_node proof_obligations) {
 }
 
 void Formula::make_clause (std::vector<int> &&literals, int degree, std::string comparison) {
+  int size {0};
+  
   if (comparison == "=")
     { ++nbequals; }
   for (auto lit : literals) {
+    ++size;
     if (lit < 0) {
       pbs_body << "-1 x";
       --degree;
@@ -700,6 +713,11 @@ void Formula::make_clause (std::vector<int> &&literals, int degree, std::string 
   }
   pbs_body << comparison << ' ' << degree << ";\n";
   ++nbclauses;
+
+  size += abs (degree);
+  size = (int) (log2 (size));
+  if (++size > intsize)
+    { intsize = size; }
 }
 
 int main (int argc, char **argv) {
