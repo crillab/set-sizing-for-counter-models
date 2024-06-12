@@ -84,6 +84,9 @@ public:
   friend struct LessThan;
   friend struct LessEqual;
 
+  friend struct Surjection;
+  friend struct SetOfRelations;
+  friend struct TotalInjection;
   friend struct Bijection;
 
   friend struct Set;
@@ -379,7 +382,7 @@ struct Relational : public Comparison {
 struct ElementOf : public Comparison {
 private:
   std::set<std::string> relational
-  {"+->", "+->>", "-->", "-->>", ">+>", ">->", ">->>"};
+  {"+->", "+->>", "-->", "-->>", "<->", ">+>", ">->", ">->>"};
   // {"+->", "+->>", "-->", "-->>", "<+", "<->", "<<|", "<|", ">+>", ">->", ">->>", "><"};
   // Partial function, Partial surjection, Total function, Total surjection,
   // Overload, Set of relations, Subtraction to the domain, Restriction to the domain,
@@ -560,6 +563,27 @@ struct LessEqual : public Comparison {
 struct NotCompared : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     return formula->next_var++;
+  }
+};
+
+struct Surjection : public Relational {
+  inline int operator () (xml_node relation, Formula *formula) {
+    GreaterEqual ge;
+    return ge (relation, formula);
+  }
+};
+
+struct SetOfRelations : public Relational {
+  inline int operator () (xml_node relation, Formula *formula) {
+    NotCompared nc;
+    return nc (relation, formula);
+  }
+};
+
+struct TotalInjection : public Relational {
+  inline int operator () (xml_node relation, Formula *formula) {
+    LessEqual le;
+    return le (relation, formula);
   }
 };
 
@@ -765,7 +789,14 @@ Formula::Formula (int k, std::string pbs_name)
   comparison_handlers["<i"] = new LessThan {};
   comparison_handlers["<=i"] = new LessEqual {};
 
-  relational_handlers[">->>"] = new Bijection {}; 
+  relational_handlers["+->"] = new SetOfRelations {};
+  relational_handlers["+->>"] = new Surjection {};
+  relational_handlers["-->"] = new SetOfRelations {};
+  relational_handlers["-->>"] = new Surjection {};
+  relational_handlers["<->"] = new SetOfRelations {};
+  relational_handlers[">+>"] = new SetOfRelations {};
+  relational_handlers[">->"] = new TotalInjection {};
+  relational_handlers[">->>"] = new Bijection {};
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
