@@ -18,10 +18,12 @@ enum typref { POW_INTEGER, INTEGER };
 
 struct Expression;
 struct Definition;
+struct Relational;
 
 class Formula {
   std::map<std::string, std::array<int, 2>> sets;    // <"name", {first_var, size}
   std::map<std::string, Definition *> comparison_handlers;
+  std::map<std::string, Relational *> relational_handlers;
   std::map<std::string, Definition *> definition_handlers;
   std::map<std::string, Expression *> operand_handlers;
   std::set<std::string> predefined_literals;
@@ -59,6 +61,16 @@ public:
       std::clog << right << "\n\n";
     }
   }
+
+  void list_sets () {
+    std::clog << "Sets:\n";
+    std::ranges::for_each (sets,
+			   [] (auto &x) {
+			     std::clog << x.first << ": "
+				       << x.second[0] << ' '
+				       << x.second[1] << '\n';
+			   });
+  }
   #endif
   
   friend struct Comparison;
@@ -71,7 +83,9 @@ public:
   friend struct GreaterThan;
   friend struct LessThan;
   friend struct LessEqual;
-  
+
+  friend struct Bijection;
+
   friend struct Set;
   friend struct BinaryPred;
   friend struct ExpComparison;
@@ -80,6 +94,7 @@ public:
   friend struct NaryPred;
 
   friend struct UnaryExp;
+  friend struct BinaryExp;
   friend struct BooleanLiteral;
   friend struct EmptySet;
   friend struct Id;
@@ -87,10 +102,6 @@ public:
 
   friend class SetSizer;
   
-  // spot-check interface
-  int get_next_var () {
-    return next_var;
-  }
   void print_pbs () {
     std::cout << "* #variable= " << next_var - 1
 	      << " #constraint= " << nbclauses
@@ -159,7 +170,7 @@ class SetSizer {
     run_through (negatives, '+');
     run_through (positives, '-');
 
-    formula->pbs_body << ">= " << -positive_limits << ";\n";
+    formula->pbs_body << ">= " << positive_limits << ";\n";
 
     ++formula->nbclauses;
 
@@ -196,8 +207,8 @@ class SetSizer {
 public:
   SetSizer (Formula *formula) : formula {formula} {}
   
-  inline int operator () (std::vector<std::string> positives,
-			  std::vector<std::string> negatives,
+  inline int operator () (std::vector<std::string> &&positives,
+			  std::vector<std::string> &&negatives,
 			  int alpha) {
     // Always of the the form Σpos - Σneg <= α
     // Returns selector variable
@@ -230,6 +241,10 @@ public:
 
 struct Expression {
   virtual std::string operator () (xml_node, Formula *) = 0;
+};
+
+struct Definition {
+  virtual int operator () (xml_node, Formula *) = 0;
 };
 
 struct Id : public Expression {
@@ -287,6 +302,16 @@ struct UnaryExp : public Expression {
   }
 };
    
+struct BinaryExp : public Expression {
+  inline std::string operator () (xml_node expression, Formula *formula) {
+    std::string op {expression.attribute ("op").value ()};
+    if (!formula->definition_handlers.contains (op))
+      { return ""; }
+    Definition *handler {formula->definition_handlers[op]};
+    return (*handler) (expression, formula) > 0 ? op : "";
+  }
+};
+
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
     if (!formula->sets.contains ("{}")) {
@@ -315,10 +340,6 @@ struct BooleanLiteral : public Expression {
     }
   }
 };
- 
-struct Definition {
-  virtual int operator () (xml_node, Formula *) = 0;
-};
 
 struct Comparison : public Definition {
 protected:
@@ -340,10 +361,29 @@ protected:
   }
 };
 
+struct Relational : public Comparison {
+  std::string operand_as_str (int op) {
+    switch (op) {
+    case 1:
+      return operand1;
+      break;
+    case 2:
+      return operand2;
+      break;
+    default:
+      return "";
+    }
+  }
+};
+
 struct ElementOf : public Comparison {
 private:
   std::set<std::string> relational
-  {"+->", "+->>", "-->", "-->>", "<+", "<->", "<<|", "<|", ">+>", ">->", ">->>", "><"};
+  {"+->", "+->>", "-->", "-->>", ">+>", ">->", ">->>"};
+  // {"+->", "+->>", "-->", "-->>", "<+", "<->", "<<|", "<|", ">+>", ">->", ">->>", "><"};
+  // Partial function, Partial surjection, Total function, Total surjection,
+  // Overload, Set of relations, Subtraction to the domain, Restriction to the domain,
+  // Partial injection, Total injection, Total bijection, Direct product of relations
 
 public:
   inline int operator () (xml_node comparison, Formula *formula) {
@@ -351,11 +391,58 @@ public:
     if (std::string {"Binary_Exp"} == second_child.name ()
 	&& relational.contains (second_child.attribute ("op").value ())) {
       std::string op {second_child.attribute ("op").value ()};
-      if (!formula->comparison_handlers.contains (op))
+      if (!formula->relational_handlers.contains (op))
 	{ return -1; }
 
-      Definition *handler {formula->comparison_handlers[op]};
-      return (*handler) (second_child, formula);
+      Relational *handler {formula->relational_handlers[op]};
+
+      int func {(*handler) (second_child, formula)};
+      std::string definiendum {comparison.first_child ().attribute ("value").value ()};
+      if (func < 0 || formula->bound_variables.contains (definiendum))
+	{ return func; }
+
+      std::string rhs_dom {handler->operand_as_str (1)};
+      std::string rhs_ran {handler->operand_as_str (2)};
+      std::string dom {"dom(" + definiendum + ")}"};
+      std::string ran {"ran(" + definiendum + ")}"};
+      if (!formula->sets.contains (dom))
+	{ formula->construct_new_set (dom, formula->sets[rhs_dom][1]); }
+      if (!formula->sets.contains (ran))
+	{ formula->construct_new_set (ran, formula->sets[rhs_ran][1]); }
+
+      std::vector<int> conjuncts {func};
+      conjuncts.reserve (7);
+
+      SetSizer set_sizer {formula};
+
+      conjuncts.push_back (set_sizer ({dom}, {rhs_dom}, 0));
+      if (op.find ('+') == op.npos)
+	{ conjuncts.push_back (set_sizer ({rhs_dom}, {dom}, 0)); }
+
+      EmptySet empty_set;
+      conjuncts.push_back (set_sizer ({empty_set (comparison, formula)}, {ran}, -1));
+
+      conjuncts.push_back (set_sizer ({ran}, {rhs_ran}, 0));
+      if (op.rfind (">>") == op.npos)
+	{ conjuncts.push_back (set_sizer ({rhs_ran}, {ran}, 0)); }
+
+      #ifdef AUX_MESSAGE
+      std::string message {definiendum + " : " + rhs_dom + op + rhs_ran};
+      int binding_var {formula->make_aux_var (message)};
+
+      #else
+      int binding_var {formula->next_var++};
+
+      #endif
+
+      for (int conjunct : conjuncts)
+	{ formula->make_clause ({-binding_var, conjunct}); }
+
+      std::ranges::transform (conjuncts, conjuncts.begin (), [] (int c) { return c * -1; });
+      conjuncts.push_back (binding_var);
+      formula->make_clause (std::move (conjuncts));
+
+      return binding_var;
     }
 
     get_operands (comparison, formula);
@@ -473,6 +560,13 @@ struct LessEqual : public Comparison {
 struct NotCompared : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     return formula->next_var++;
+  }
+};
+
+struct Bijection : public Relational {
+  inline int operator () (xml_node relation, Formula *formula) {
+    Equality eq;
+    return eq (relation, formula);
   }
 };
 
@@ -653,7 +747,7 @@ struct NaryPred : public PredGroup {
     return junction_var;
   }
 };
-
+  
 Formula::Formula (int k, std::string pbs_name) 
   : upper_bound {k}, pbs_name {pbs_name},
     predefined_literals {"MAXINT", "MININT", "TRUE"
@@ -671,7 +765,7 @@ Formula::Formula (int k, std::string pbs_name)
   comparison_handlers["<i"] = new LessThan {};
   comparison_handlers["<=i"] = new LessEqual {};
 
-  comparison_handlers[">->>"] = new Equality {};
+  relational_handlers[">->>"] = new Bijection {}; 
   
   definition_handlers["Set"] = new Set {};
   definition_handlers["Binary_Pred"] = new BinaryPred {};
@@ -681,6 +775,7 @@ Formula::Formula (int k, std::string pbs_name)
   definition_handlers["Nary_Pred"] = new NaryPred {};
 
   operand_handlers["Unary_Exp"] = new UnaryExp {};
+  operand_handlers["Binary_Exp"] = new BinaryExp {};
   operand_handlers["Boolean_Literal"] = new BooleanLiteral {};
   operand_handlers["EmptySet"] = new EmptySet {};
   operand_handlers["Id"] = new Id {};
@@ -723,7 +818,7 @@ void Formula::explore_context (xml_node proof_obligations) {
     std::string name {definition.attribute ("name").value ()};
     if (std::string {"Define"} == definition.name ()
 	&& (name == "ctx"                                        
-	    || name == "sets"                                    
+	    // || name == "sets"                                    
 	    || name.substr (name.length () - 3) == "prp")) {
       for (xml_node interior : definition.children ()) {
 	if (definition_handlers.contains (interior.name ())) {
@@ -785,6 +880,7 @@ int main (int argc, char **argv) {
 
   #ifdef AUX_MESSAGE
   formula.list_aux ();
+  formula.list_sets ();
   #endif
 
   auto t2 {std::chrono::system_clock::now ()};
