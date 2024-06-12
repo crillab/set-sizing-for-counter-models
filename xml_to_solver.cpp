@@ -97,6 +97,7 @@ public:
 
   friend struct UnaryExp;
   friend struct BinaryExp;
+  friend struct NaryExp;
   friend struct BooleanLiteral;
   friend struct EmptySet;
   friend struct Id;
@@ -302,6 +303,42 @@ struct BinaryExp : public Expression {
   }
 };
 
+struct NaryExp : public Expression {
+  inline std::string operator () (xml_node expression, Formula *formula) {
+    if (std::string {"{"} == expression.attribute ("op").value ()) {
+      std::set<std::string> elements;
+      for (xml_node child : expression.children ()) {
+	Expression *handler {formula->operand_handlers[child.name ()]};
+	std::string element {(*handler) (child, formula)};
+	if (element == "")
+	  { return element; }
+	elements.insert (element);
+      }
+
+      int var {formula->next_var};
+      std::string set_name {"{"};
+      auto el_iter {elements.begin ()};
+      set_name += *el_iter;
+      formula->make_clause ({var});
+    
+      for (++el_iter; el_iter != elements.end (); ++el_iter) {
+	set_name += "," + *el_iter;
+	formula->make_clause ({++var});
+      }
+      set_name += "}";
+    
+      if (!formula->sets.contains (set_name)) 
+	{ formula->next_var = var + 1; }
+      else [[likely]] 
+	{ formula->construct_new_set (set_name, elements.size ()); }
+
+      return set_name;
+    }
+
+    return "";
+  }
+};
+    
 struct EmptySet : public Expression {
   inline std::string operator () (xml_node, Formula *formula) {
     if (!formula->sets.contains ("{}")) {
@@ -792,6 +829,7 @@ Formula::Formula (int k, std::string pbs_name)
 
   operand_handlers["Unary_Exp"] = new UnaryExp {};
   operand_handlers["Binary_Exp"] = new BinaryExp {};
+  operand_handlers["Nary_Exp"] = new NaryExp {};
   operand_handlers["Boolean_Literal"] = new BooleanLiteral {};
   operand_handlers["EmptySet"] = new EmptySet {};
   operand_handlers["Id"] = new Id {};
