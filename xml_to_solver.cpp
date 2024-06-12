@@ -35,7 +35,6 @@ class Formula {
   std::string pbs_name;
   int next_var {1}, nbclauses {0}, nbequals {0}, intsize {0};
   int upper_bound {};
-  bool int_literals {false};
 
   inline int complement (int);
   inline int constrain_equality (std::string &, std::string &);
@@ -64,12 +63,12 @@ public:
 
   void list_sets () {
     std::clog << "Sets:\n";
-    std::ranges::for_each (sets,
-			   [] (auto &x) {
-			     std::clog << x.first << ": "
-				       << x.second[0] << ' '
-				       << x.second[1] << '\n';
-			   });
+    std::ranges::for_each
+      (sets, [] (auto &x) {
+	std::clog << x.first << ": "
+		  << x.second[0] << ' '
+		  << x.second[1] << '\n';
+      });
   }
   #endif
   
@@ -152,9 +151,17 @@ class SetSizer {
 			     
   void run_through (std::vector<std::string> &V, char sign) {
     for (auto &el_of_v : V) {
-      int var {formula->sets[el_of_v][0]};
-      for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
-	{ formula->pbs_body << sign << "1 x" << var++ << ' '; }
+      if (el_of_v[0] == '-' || el_of_v[0] >='0' && el_of_v[0] <= '9') {
+	int change {std::stoi (el_of_v)};
+	if (sign == '+')
+	  { change *= -1; }
+	degree += change;
+      }
+      else {
+	int var {formula->sets[el_of_v][0]};
+	for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
+	  { formula->pbs_body << sign << "1 x" << var++ << ' '; }
+      }
     }
   }
 	
@@ -264,27 +271,7 @@ struct Id : public Expression {
 
 struct IntegerLiteral : public Expression {
   inline std::string operator () (xml_node operand, Formula *formula) {
-    int value {operand.attribute ("value").as_int ()};
-    if (value < 0) {
-      std::cerr << "Negative integer!\n";
-      return "";
-    }
-
-    int var;
-    if (!formula->int_literals) {
-      var = formula->next_var;
-      std::string name {"small_pos_integers"};
-      formula->construct_new_set (name, formula->upper_bound + 1);
-      for (int i {0}; i < formula->upper_bound + 1; ++i)
-	{ formula->make_clause ({var + i}); }
-    }
-    else
-      { var = formula->sets["small_pos_integers"][0]; }
-    
-    std::string val_as_str {std::to_string (value)};
-    if (!formula->sets.contains (val_as_str)) 
-      { formula->sets[val_as_str] = {var, value < formula->upper_bound ? value : formula->upper_bound}; }
-    return val_as_str;
+    return operand.attribute ("value").value ();
   }
 };
 
@@ -383,10 +370,8 @@ struct ElementOf : public Comparison {
 private:
   std::set<std::string> relational
   {"+->", "+->>", "-->", "-->>", "<->", ">+>", ">->", ">->>"};
-  // {"+->", "+->>", "-->", "-->>", "<+", "<->", "<<|", "<|", ">+>", ">->", ">->>", "><"};
-  // Partial function, Partial surjection, Total function, Total surjection,
-  // Overload, Set of relations, Subtraction to the domain, Restriction to the domain,
-  // Partial injection, Total injection, Total bijection, Direct product of relations
+  // {"<+", "<<|", "<|", "><"}
+  // Overload, Subtraction, Restriction, Direct product
 
 public:
   inline int operator () (xml_node comparison, Formula *formula) {
