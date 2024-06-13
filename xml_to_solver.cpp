@@ -258,6 +258,41 @@ struct Definition {
   virtual int operator () (xml_node, Formula *) = 0;
 };
 
+struct Comparison : public Definition {
+protected:
+  std::string operand1;
+  std::string operand2;
+  
+  void get_operands (xml_node comparison, Formula *formula) {
+    auto handle_operand {[formula] (xml_node operand) {
+      if (!formula->operand_handlers.contains (operand.name ()))
+	{ return std::string {}; }
+      Expression *handler {formula->operand_handlers[operand.name ()]};
+      return (*handler) (operand, formula);
+    }};
+
+    operand1 = handle_operand (comparison.first_child ());
+    if (operand1.empty ())
+      { return; }
+    operand2 = handle_operand (comparison.first_child ().next_sibling ());
+  }
+};
+
+struct Relational : public Comparison {
+  std::string operand_as_str (int op) {
+    switch (op) {
+    case 1:
+      return operand1;
+      break;
+    case 2:
+      return operand2;
+      break;
+    default:
+      return "";
+    }
+  }
+};
+
 struct Id : public Expression {
   inline std::string operator () (xml_node operand, Formula *formula) {
     std::string value {operand.attribute ("value").value ()};
@@ -296,10 +331,49 @@ struct UnaryExp : public Expression {
 struct BinaryExp : public Expression {
   inline std::string operator () (xml_node expression, Formula *formula) {
     std::string op {expression.attribute ("op").value ()};
-    if (!formula->definition_handlers.contains (op))
-      { return ""; }
-    Definition *handler {formula->definition_handlers[op]};
-    return (*handler) (expression, formula) > 0 ? op : "";
+    if (formula->relational_handlers.contains (op)) {
+      Relational *handler {formula->relational_handlers[op]};
+      if ((*handler) (expression, formula) < 0)
+	{ return ""; }
+
+      std::string name {"(" + op + ")("};
+      name += handler->operand_as_str (1);
+      name += ",";
+      name += handler->operand_as_str (2);
+      name += ")";
+      return name;
+    }
+
+    auto handle_operand
+      { [formula] (xml_node operand) {
+	Expression *handler {formula->operand_handlers[operand.name ()]};
+	return (*handler) (operand, formula);
+      }};
+
+    if (op == "..") {
+      xml_node first_child (expression.first_child ());
+      
+      std::string operand1 {handle_operand (first_child)};
+      if (operand1.empty ())
+	{ return ""; }
+
+      xml_node second_child {first_child.next_sibling ()};
+      std::string operand2 {handle_operand (second_child)};
+      if (operand2.empty ())
+	{ return ""; }
+
+      std::string name {"(..)(" + operand1 + "," + operand2 + ")"};
+      int size1 {formula->sets[operand1][1]}, size2 {formula->sets[operand2][1]};
+      formula->construct_new_set (name, size1 > size2 ? size1 : size2); // Will run into issues if op1 and op2 have opposite signs.
+
+      SetSizer set_sizer {formula};
+      set_sizer ({name, operand1}, {operand2}, 0);
+      set_sizer ({operand2}, {name, operand1}, 0);
+
+      return name;
+    }
+    
+    return "";
   }
 };
 
@@ -364,41 +438,6 @@ struct BooleanLiteral : public Expression {
     else {
       EmptySet falsehood;
       return falsehood (literal, formula);
-    }
-  }
-};
-
-struct Comparison : public Definition {
-protected:
-  std::string operand1;
-  std::string operand2;
-  
-  void get_operands (xml_node comparison, Formula *formula) {
-    auto handle_operand {[formula] (xml_node operand) {
-      if (!formula->operand_handlers.contains (operand.name ()))
-	{ return std::string {}; }
-      Expression *handler {formula->operand_handlers[operand.name ()]};
-      return (*handler) (operand, formula);
-    }};
-
-    operand1 = handle_operand (comparison.first_child ());
-    if (operand1.empty ())
-      { return; }
-    operand2 = handle_operand (comparison.first_child ().next_sibling ());
-  }
-};
-
-struct Relational : public Comparison {
-  std::string operand_as_str (int op) {
-    switch (op) {
-    case 1:
-      return operand1;
-      break;
-    case 2:
-      return operand2;
-      break;
-    default:
-      return "";
     }
   }
 };
@@ -842,6 +881,8 @@ Formula::~Formula () {
       { delete couple.second; }
   }
 
+  for (auto &couple : relational_handlers)
+    { delete couple.second; }
   for (auto &couple : operand_handlers)
     { delete couple.second; }
 }
@@ -924,19 +965,21 @@ int main (int argc, char **argv) {
 
   auto t1 {std::chrono::system_clock::now ()};
 
-  Formula formula {k, out_file};
+  Formula *formula {new Formula {k, out_file}};
 
   pugi::xml_document doc;
   doc.load_file (argv[2]);
 
-  formula.explore_context (doc.first_child ());
-  formula.print_pbs ();
+  formula->explore_context (doc.first_child ());
+  formula->print_pbs ();
 
   #ifdef AUX_MESSAGE
-  formula.list_aux ();
-  formula.list_sets ();
+  formula->list_aux ();
+  formula->list_sets ();
   #endif
 
+  delete formula;
+  
   auto t2 {std::chrono::system_clock::now ()};
   std::clog << (std::chrono::duration_cast<std::chrono::milliseconds> (t2 - t1)) << '\n';
   
