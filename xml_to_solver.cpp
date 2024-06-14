@@ -446,8 +446,7 @@ struct BinaryExp : public Expression {
 	    if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
 	      std::vector<int> variables (product);
 	      std::iota (variables.begin (), variables.end (), formula->sets[name][0]);
-	      for (int var : variables)
-		{ formula->make_clause ({var}); }
+	      formula->make_clause (std::move (variables), product, "=");
 	      return name;
 	    }
 	    formula->make_clause ({1, -std::stoi (operand1)}, {name, operand2}, 0);
@@ -775,7 +774,7 @@ struct Set : public Definition {
       int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; }
-      formula->make_clause (fresh_construct (size), size);
+      formula->make_clause (fresh_construct (size), size, "=");
     }
     else
       { formula->make_clause (fresh_construct (formula->upper_bound)); }
