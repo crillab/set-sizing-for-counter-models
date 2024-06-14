@@ -41,6 +41,13 @@ class Formula {
   inline int constrain_gte (std::string &, std::string &);
   inline void construct_new_set (std::string &, int);
   inline void make_clause (std::vector<int> &&, int = 1, std::string = ">=");
+  inline void make_clause (std::vector<int> &&, std::vector<std::string> &&, int, std::string = ">=");
+
+  inline void update_intsize (int size) {
+    size = (int) (log2 (size));
+    if (++size > intsize)
+      { intsize = size; }
+  }
   
 public:
   Formula (int, std::string);
@@ -227,11 +234,11 @@ public:
     #ifdef AUX_MESSAGE
     std::string message {"SetSizer\n"};
     for (std::string &name : positives)
-      { message += "+ " + name + " "; }
-    message += "\n";
+      { message += "+ " + name + ' '; }
+    message += '\n';
     for (std::string &name : negatives)
-      { message += "- " + name + " "; }
-    message += "\n";
+      { message += "- " + name + ' '; }
+    message += '\n';
     message += "α = " + std::to_string (alpha);
 
     selector = formula->make_aux_var (message);
@@ -350,9 +357,16 @@ struct BinaryExp : public Expression {
 	return (*handler) (operand, formula);
       }};
 
-    if (op == "..") {
-      xml_node first_child (expression.first_child ());
-      
+    auto measure_operand
+      { [formula] (std::string &operand) {
+	if (operand[0] == '-' || operand[0] >= '0' && operand[0] <= '9')
+	  { return std::stoi (operand); }
+	return formula->sets[operand][1];
+      }};
+	
+    if (op == ".." || op.find ('i') == 1) {
+      xml_node first_child {expression.first_child ()};
+
       std::string operand1 {handle_operand (first_child)};
       if (operand1.empty ())
 	{ return ""; }
@@ -362,17 +376,101 @@ struct BinaryExp : public Expression {
       if (operand2.empty ())
 	{ return ""; }
 
-      std::string name {"(..)(" + operand1 + "," + operand2 + ")"};
-      int size1 {formula->sets[operand1][1]}, size2 {formula->sets[operand2][1]};
-      formula->construct_new_set (name, size1 > size2 ? size1 : size2); // Will run into issues if op1 and op2 have opposite signs.
+      switch (op[0]) {
+      case '.':
+	{
+	  std::string name {"(..)(" + operand1 + "," + operand2 + ")"};
+	  int size1 {formula->sets[operand1][1]}, size2 {formula->sets[operand2][1]};
+	  formula->construct_new_set (name, size1 > size2 ? size1 : size2);
+	  // Will run into issues if op1 and op2 have opposite signs.
 
-      SetSizer set_sizer {formula};
-      set_sizer ({name, operand1}, {operand2}, 0);
-      set_sizer ({operand2}, {name, operand1}, 0);
+	  SetSizer set_sizer {formula};
+	  set_sizer ({name, operand1}, {operand2}, 0);
+	  set_sizer ({operand2}, {name, operand1}, 0);
 
-      return name;
-    }
-    
+	  return name;
+	}
+	
+      case '+':
+	{
+	  if (operand1 > operand2)
+	    { std::swap (operand1, operand2); }
+	  std::string name {operand1 + '+' + operand2};
+	  int size {measure_operand (operand1) + measure_operand (operand2)};
+	  if (size < 0) {
+	    name = "(-)" + name;
+	    size *= 1;
+	  }
+	  formula->construct_new_set (name, size);
+
+	  SetSizer set_sizer {formula};
+	  set_sizer ({name}, {operand1, operand2}, 0);
+	  set_sizer ({operand1, operand2}, {name}, 0);
+
+	  return name;
+	}
+	
+      case '-':
+	{
+	  std::string name {operand1 + '-' + operand2};
+	  int measure1 {measure_operand (operand1)};
+	  int measure2 {measure_operand (operand2)};
+	  int size;
+	
+	  constexpr int neg_flag {1 << sizeof (int) * 8 - 1};
+	  if (measure1 & neg_flag ^ measure2 & neg_flag)
+	    { size = abs (measure1) > abs (measure2) ? measure1 : measure2; }
+	  else
+	    { size = measure1 + measure2; }
+	  if (measure1 + measure2 < 0) {
+	    name = "(-)" + name;
+	    size *= 1;
+	  }
+	  formula->construct_new_set (name, size);
+
+	  SetSizer set_sizer {formula};
+	  set_sizer ({name, operand2}, {operand1}, 0);
+	  set_sizer ({operand1}, {name, operand2}, 0);
+
+	  return name;
+	}
+
+      case '*':
+	{
+	  std::string name {operand1 + '*' + operand2};
+
+	  int product {measure_operand (operand1) * measure_operand (operand2)};
+	  formula->construct_new_set (name, product);	    
+	  
+	  if (operand1[0] == '-' || operand1[0] >= '0' && operand1[0] <= '9') {
+	    if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
+	      std::vector<int> variables (product);
+	      std::iota (variables.begin (), variables.end (), formula->sets[name][0]);
+	      formula->make_clause (std::move (variables), product, "=");
+	      return name;
+	    }
+	    formula->make_clause ({1, -std::stoi (operand1)}, {name, operand2}, 0);
+	    formula->make_clause ({std::stoi (operand1), -1}, {operand2, name}, 0);
+
+	    return name;
+	  }
+	  else if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
+	    formula->make_clause ({1, -std::stoi (operand2)}, {name, operand1}, 0);
+	    formula->make_clause ({std::stoi (operand2), -1}, {operand1, name}, 0);
+
+	    return name;
+	  }
+	}
+
+	std::cerr << "*i between variables!\n";
+	
+	[[fallthrough]];
+	
+      case '/':
+      default:
+	return "";
+      }
+    } 
     return "";
   }
 };
@@ -447,7 +545,6 @@ private:
   std::set<std::string> relational
   {"+->", "+->>", "-->", "-->>", "<->", ">+>", ">->", ">->>"};
   // {"<+", "<<|", "<|", "><"}
-  // Overload, Subtraction, Restriction, Direct product
 
 public:
   inline int operator () (xml_node comparison, Formula *formula) {
@@ -953,12 +1050,37 @@ void Formula::make_clause (std::vector<int> &&literals, int degree, std::string 
   pbs_body << comparison << ' ' << degree << ";\n";
   ++nbclauses;
 
-  size += abs (degree);
-  size = (int) (log2 (size));
-  if (++size > intsize)
-    { intsize = size; }
+  update_intsize (size + abs (degree));
 }
 
+void Formula::make_clause (std::vector<int> &&W, std::vector<std::string> &&X, int K, std::string comparison) {
+  int size {0};
+
+  if (comparison == "=")
+    { ++nbequals; }
+  for (int i {0}; i < W.size (); ++i) {
+    int max {sets[X[i]][1]};
+    int x {sets[X[i]][0]};
+    int coeff {W[i]};
+    
+    for (int j {0}; j < max; ++j) {
+      if (coeff >= 0) {
+	pbs_body << '+';
+	size += coeff;
+      }
+      else
+	{ size += -coeff; }
+      
+      pbs_body << coeff << " x" << x + j << ' ';
+    }
+  }
+
+  pbs_body << comparison << ' ' << K << ";\n";
+  ++nbclauses;
+
+  update_intsize (size + abs (K));
+}
+			   
 int main (int argc, char **argv) {
   int k {atoi (argv[1])};
   std::string out_file {get_pbs_file_name (argv[2])};
