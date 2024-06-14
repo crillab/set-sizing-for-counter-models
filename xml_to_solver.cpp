@@ -774,8 +774,8 @@ struct Set : public Definition {
     if (set.child ("Enumerated_Values")) {
       int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
-	{ ++size; }
-      formula->make_clause (fresh_construct (size), size, "=");
+	{ ++size; } 
+     formula->make_clause (fresh_construct (size), size, "=");
     }
     else
       { formula->make_clause (fresh_construct (formula->upper_bound)); }
