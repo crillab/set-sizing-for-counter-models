@@ -446,7 +446,8 @@ struct BinaryExp : public Expression {
 	    if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
 	      std::vector<int> variables (product);
 	      std::iota (variables.begin (), variables.end (), formula->sets[name][0]);
-	      formula->make_clause (std::move (variables), product, "=");
+	      for (int var : variables)
+		{ formula->make_clause ({var}); }
 	      return name;
 	    }
 	    formula->make_clause ({1, -std::stoi (operand1)}, {name, operand2}, 0);
