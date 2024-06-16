@@ -147,6 +147,7 @@ std::string get_pbs_file_name (char *pog_name) {
 }
 
 class SetSizer {
+  std::stringstream tmp_buffer;
   Formula *formula;
   int degree;
   int selector;
@@ -157,18 +158,20 @@ class SetSizer {
 			    { return acc + formula->sets[name][1]; });
   }
 			     
-  void run_through (std::vector<std::string> &V, char sign) {
-    for (auto &el_of_v : V) {
-      if (el_of_v[0] == '-' || el_of_v[0] >='0' && el_of_v[0] <= '9') {
-	int change {std::stoi (el_of_v)};
-	if (sign == '+')
+  void run_through (std::vector<std::string> &V, char sign, std::stringstream &out) {
+    for (auto el_of_v {V.begin ()}; el_of_v != V.end (); ++el_of_v) {
+      if ((*el_of_v)[0] == '-' || (*el_of_v)[0] >= '0' && (*el_of_v)[0] <= '9') {
+	int change {std::stoi (*el_of_v)};
+	if (sign == '-')
 	  { change *= -1; }
 	degree += change;
+	V.erase (el_of_v);
+	--el_of_v;
       }
       else {
-	int var {formula->sets[el_of_v][0]};
-	for (int i {0}; i < formula->sets[el_of_v][1]; ++i)
-	  { formula->pbs_body << sign << "1 x" << var++ << ' '; }
+	int var {formula->sets[*el_of_v][0]};
+	for (int i {0}; i < formula->sets[*el_of_v][1]; ++i)
+	  { out << sign << "1 x" << var++ << ' '; }
       }
     }
   }
@@ -176,6 +179,11 @@ class SetSizer {
   inline void if_var (std::vector<std::string> &positives,
 		      std::vector<std::string> &negatives) {
     // M := α - |pos|
+
+    std::stringstream tmp_buffer;
+    
+    run_through (negatives, '+', tmp_buffer);
+    run_through (positives, '-', tmp_buffer);
 
     int positive_limits {get_limits (positives)};
     int M {degree - positive_limits};
@@ -185,10 +193,9 @@ class SetSizer {
       { formula->pbs_body << M; }
     formula->pbs_body << " x" << selector << ' ';
 
-    run_through (negatives, '+');
-    run_through (positives, '-');
+    formula->pbs_body << tmp_buffer.str ();
 
-    formula->pbs_body << ">= " << positive_limits << ";\n";
+    formula->pbs_body << ">= " << -positive_limits << ";\n";
 
     ++formula->nbclauses;
 
@@ -202,8 +209,8 @@ class SetSizer {
 			 std::vector<std::string> &negatives) {
     // M := |neg| + α + 1
 
-    run_through (positives, '+');
-    run_through (negatives, '-');
+    run_through (positives, '+', formula->pbs_body);
+    run_through (negatives, '-', formula->pbs_body);
 
     int negative_limits {get_limits (negatives)};
     int M {negative_limits + degree + 1};
