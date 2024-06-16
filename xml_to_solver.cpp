@@ -360,7 +360,7 @@ struct BinaryExp : public Expression {
     auto check_for_literal { [] (std::string &operand) {
       return (operand[0] == '-' || operand[0] >= '0' && operand[0] <= '9'); }
     };
-
+      
     auto measure_operand
       { [formula, &check_for_literal] (std::string &operand) {
 	if (check_for_literal (operand))
@@ -386,6 +386,10 @@ struct BinaryExp : public Expression {
 	  if (operand1 > operand2)
 	    { std::swap (operand1, operand2); }
 	  std::string name {"(..)(" + operand1 + "," + operand2 + ")"};
+
+	  if (formula->sets.contains (name))
+	    { return name; }
+	  
 	  int size {check_for_literal (operand1) && check_for_literal (operand2)
 		    ? stoi (operand2) - stoi (operand1) + 1
 	            : (formula->sets[operand1][1] > formula->sets[operand2][1]
@@ -401,9 +405,14 @@ struct BinaryExp : public Expression {
 	
       case '+':
 	{
+	  if (check_for_literal (operand1) && check_for_literal (operand2)) {
+	    int literal_size {std::stoi (operand1) + std::stoi (operand2)};
+	    return std::to_string (literal_size);
+	  }
+	  
 	  if (operand1 > operand2)
 	    { std::swap (operand1, operand2); }
-	  std::string name {operand1 + '+' + operand2};
+	  std::string name {"(+)(" + operand1 + ',' + operand2 + ')'};
 	  int size {measure_operand (operand1) + measure_operand (operand2)};
 	  if (size < 0) {
 	    name = "(-)" + name;
@@ -420,7 +429,15 @@ struct BinaryExp : public Expression {
 	
       case '-':
 	{
-	  std::string name {operand1 + '-' + operand2};
+	  if (check_for_literal (operand1) && check_for_literal (operand2)) {
+	    int literal_size {std::stoi (operand1) - std::stoi (operand2)};
+	    return std::to_string (literal_size);
+	  }
+	  
+	  std::string name {"(-)(" +operand1 + ',' + operand2 + ')'};
+	  if (formula->sets.contains (name))
+	    { return name; }
+	  
 	  int measure1 {measure_operand (operand1)};
 	  int measure2 {measure_operand (operand2)};
 	  int size;
@@ -445,32 +462,38 @@ struct BinaryExp : public Expression {
 
       case '*':
 	{
-	  std::string name {"(*)(" +operand1 + '*' + operand2};
+	  if (check_for_literal (operand1) && check_for_literal (operand2)) {
+	    int literal_size {std::stoi (operand1) * std::stoi (operand2)};
+	    return std::to_string (literal_size);
+	  }
 
-	  int product {measure_operand (operand1) * measure_operand (operand2)};
-	  formula->construct_new_set (name, product);	    
+	  if (operand1 > operand2)
+	    { std::swap (operand1, operand2); }
 	  
-	  if (operand1[0] == '-' || operand1[0] >= '0' && operand1[0] <= '9') {
-	    if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
-	      std::vector<int> variables (product);
-	      std::iota (variables.begin (), variables.end (), formula->sets[name][0]);
-	      for (int var : variables)
-		{ formula->make_clause ({var}); }
-	      return name;
-	    }
-	    formula->make_clause ({1, -std::stoi (operand1)}, {name, operand2}, 0);
-	    formula->make_clause ({std::stoi (operand1), -1}, {operand2, name}, 0);
+	  std::string name {"(*)(" + operand1 + ',' + operand2 + ')'};
+	  if (formula->sets.contains (name))
+	    { return name; }
 
+	  int product_size {measure_operand (operand1) * measure_operand (operand2)};
+	  formula->construct_new_set (name, product_size);	    
+
+	  auto multiplication
+	    { [formula, name] (std::string &operand1,
+			       std::string &operand2) {
+	      formula->make_clause ({1, -std::stoi (operand1)}, {name, operand2}, 0);
+	      formula->make_clause ({std::stoi (operand1), -1}, {operand2, name}, 0);
+	    }};
+	  
+	  if (check_for_literal (operand1)) {
+	    multiplication (operand1, operand2);
 	    return name;
 	  }
-	  else if (operand2[0] == '-' || operand2[0] >= '0' && operand2[0] <= '9') {
-	    formula->make_clause ({1, -std::stoi (operand2)}, {name, operand1}, 0);
-	    formula->make_clause ({std::stoi (operand2), -1}, {operand1, name}, 0);
-
+	  else if (check_for_literal (operand2)) {
+	    multiplication (operand2, operand1);
 	    return name;
 	  }
 	}
-
+	  
 	std::cerr << "*i between variables!\n";
 	
 	[[fallthrough]];
