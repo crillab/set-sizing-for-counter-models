@@ -357,13 +357,17 @@ struct BinaryExp : public Expression {
 	return (*handler) (operand, formula);
       }};
 
+    auto check_for_literal { [] (std::string &operand) {
+      return (operand[0] == '-' || operand[0] >= '0' && operand[0] <= '9'); }
+    };
+
     auto measure_operand
-      { [formula] (std::string &operand) {
-	if (operand[0] == '-' || operand[0] >= '0' && operand[0] <= '9')
+      { [formula, &check_for_literal] (std::string &operand) {
+	if (check_for_literal (operand))
 	  { return std::stoi (operand); }
 	return formula->sets[operand][1];
       }};
-	
+
     if (op == ".." || op.find ('i') == 1) {
       xml_node first_child {expression.first_child ()};
 
@@ -379,10 +383,14 @@ struct BinaryExp : public Expression {
       switch (op[0]) {
       case '.':
 	{
+	  if (operand1 > operand2)
+	    { std::swap (operand1, operand2); }
 	  std::string name {"(..)(" + operand1 + "," + operand2 + ")"};
-	  int size1 {formula->sets[operand1][1]}, size2 {formula->sets[operand2][1]};
-	  formula->construct_new_set (name, size1 > size2 ? size1 : size2);
-	  // Will run into issues if op1 and op2 have opposite signs.
+	  int size {check_for_literal (operand1) && check_for_literal (operand2)
+		    ? stoi (operand2) - stoi (operand1) + 1
+	            : (formula->sets[operand1][1] > formula->sets[operand2][1]
+		       ? formula->sets[operand1][1] : formula->sets[operand2][1])};
+	               // Will run into issues if op1 and op2 have opposite signs.
 
 	  SetSizer set_sizer {formula};
 	  set_sizer ({name, operand1}, {operand2}, 0);
@@ -437,7 +445,7 @@ struct BinaryExp : public Expression {
 
       case '*':
 	{
-	  std::string name {operand1 + '*' + operand2};
+	  std::string name {"(*)(" +operand1 + '*' + operand2};
 
 	  int product {measure_operand (operand1) * measure_operand (operand2)};
 	  formula->construct_new_set (name, product);	    
@@ -775,7 +783,7 @@ struct Set : public Definition {
       int size = 0;
       for (auto el : set.child ("Enumerated_Values").children ())
 	{ ++size; } 
-     formula->make_clause (fresh_construct (size), size, "=");
+     formula->make_clause (fresh_construct (size), size);
     }
     else
       { formula->make_clause (fresh_construct (formula->upper_bound)); }
