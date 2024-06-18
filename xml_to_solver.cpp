@@ -174,9 +174,13 @@ class SetSizer {
 	--el_of_v;
       }
       else {
+	char inner_sign {sign};
+	if (el_of_v->substr (0, 3) == "(-)")
+	  { inner_sign = sign == '+' ? '-' : '+'; }
+	
 	int var {formula->sets[*el_of_v][0]};
 	for (int i {0}; i < formula->sets[*el_of_v][1]; ++i)
-	  { out << sign << "1 x" << var++ << ' '; }
+	  { out << inner_sign << "1 x" << var++ << ' '; }
       }
     }
   }
@@ -357,13 +361,36 @@ struct UnaryExp : public Expression {
   inline std::string operator () (xml_node expression, Formula *formula) {
     xml_node child {expression.first_child ()};
     if (formula->operand_handlers.contains (child.name ())) {
-      if (std::string {"FIN"} == expression.attribute ("op").value ()) {
-	Expression *handler {formula->operand_handlers[child.name ()]};
-	return "FIN(" + (*handler) (child, formula);
-      }
-      else if (std::string {"card"} == expression.attribute ("op").value ()) {
-	Expression *handler {formula->operand_handlers[child.name ()]};
-	return (*handler) (child, formula);
+      Expression *handler {formula->operand_handlers[child.name ()]};
+      std::string child_name {(*handler) (child, formula)};
+      if (child_name.empty ())
+	{ return child_name; }
+      
+      if (std::string {"FIN"} == expression.attribute ("op").value ())
+	{ return "FIN(" + child_name + ")"; }
+      
+      else if (std::string {"card"} == expression.attribute ("op").value ())
+	{ return child_name; }
+      
+      else if (std::string {"-i"} == expression.attribute ("op").value ()) {
+	if (child_name[0] == '-')
+	  { return child_name.substr (1); }
+	else if (child_name[0] >= '0' && child_name[0] <= '9')
+	  { return "-" + child_name; }
+	else {
+	  int size {formula->sets[child_name][1]};
+	  if (child_name.substr (0, 3) == "(-)") {
+	    child_name = child_name.substr (3);
+	    if (!formula->sets.contains (child_name))
+	      { formula->construct_new_set (child_name, size); }
+	  }
+	  else {
+	    child_name = "(-)" + child_name;
+	    if (!formula->sets.contains (child_name))
+	      { formula->construct_new_set (child_name, size); }
+	  }
+	  return child_name;
+	}
       }
     }
     return "";
@@ -476,7 +503,7 @@ struct BinaryExp : public Expression {
 	    return std::to_string (literal_size);
 	  }
 	  
-	  std::string name {"(-)(" +operand1 + ',' + operand2 + ')'};
+	  std::string name {"(" +operand1 + '-' + operand2 + ')'};
 	  if (formula->sets.contains (name))
 	    { return name; }
 	  
