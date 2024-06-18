@@ -29,6 +29,7 @@ class Formula {
   std::map<std::string, Expression *> operand_handlers;
   std::set<std::string> predefined_literals;
   std::set<std::string> bound_variables;
+  std::set<std::string> lambda_formulae;
   #ifdef AUX_MESSAGE
   std::map<int, std::string> aux_vars;
   #endif
@@ -126,23 +127,6 @@ public:
   }
 };
 
-inline bool convexity_constraint (xml_node comparison) {
-  if (std::string {"Exp_Comparison"} != comparison.name ()
-      || std::string {"="} != comparison.attribute ("op").value ()
-      || std::string {"Id"} != comparison.first_child ().name ())
-    { return false; }
-  
-  std::string value {comparison.first_child ().attribute ("value").value ()};
-  xml_node second_child {comparison.first_child ().next_sibling ()};
-  
-  return
-    std::string {".."} == second_child.attribute ("op").value () &&
-    std::string {"imin"} == second_child.first_child ().attribute ("op").value () &&
-    std::string {"imax"} == second_child.first_child ().next_sibling ().attribute ("op").value () &&
-    std::ranges::all_of (second_child.children (),
-			 [&value] (auto &child) { return value == child.first_child ().attribute ("value").value (); });
-}  
-  
 std::string get_pbs_file_name (char *pog_name) {
   std::string read_in_file {pog_name};
   read_in_file = read_in_file.substr (read_in_file.rfind ('/', read_in_file.rfind ('/') - 1) + 1);
@@ -463,7 +447,7 @@ struct BinaryExp : public Expression {
 		    ? stoi (operand2) - stoi (operand1) + 1
 	            : (formula->sets[operand1][1] > formula->sets[operand2][1]
 		       ? formula->sets[operand1][1] : formula->sets[operand2][1])};
-	               // Will run into issues if op1 and op2 have opposite signs.
+	  // Will run into issues if op1 and op2 have opposite signs.
 
 	  SetSizer set_sizer {formula};
 	  set_sizer ({name, operand1}, {operand2}, 0);
@@ -565,9 +549,30 @@ struct BinaryExp : public Expression {
 	  
 	std::cerr << "*i between variables!\n";
 	
-	[[fallthrough]];
+	return "";
 	
       case '/':
+	{
+	  if (check_for_literal (operand1) && check_for_literal (operand2)) {
+	    int literal_size {std::stoi (operand1) / std::stoi (operand2)};
+	    return std::to_string (literal_size);
+	  }
+
+	  std::string name {"(/)(" + operand1 + ',' + operand2 + ')'};
+	  if (formula->sets.contains (name))
+	    { return name; }
+
+	  formula->construct_new_set (name, measure_operand (operand1));
+
+	  if (check_for_literal (operand2)) {
+	    formula->make_clause ({std::stoi (operand2), -1}, {name, operand1}, 0);
+	    formula->make_clause ({1, -std::stoi (operand2)}, {operand1, name}, 0);
+	    return name;
+	  }
+
+	  std::cerr << "/i only handled between integer literals or if denominator is an integer literal\n";
+	}
+	
       default:
 	return "";
       }
@@ -753,6 +758,21 @@ public:
 	
 struct Equality : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
+    if (comparison.child ("Quantified_Exp")) {
+      xml_node first_child {comparison.first_child ()};
+      if (std::string {"Id"} == first_child.name ()) {
+	formula->lambda_formulae.insert (first_child.attribute ("value").value ());
+	if (!formula->sets.contains ("TRUE")) {
+	  int var {formula->next_var++};
+	  formula->sets["TRUE"] = {var, 1};
+	  formula->make_clause ({var});
+	}
+	return formula->sets["TRUE"][0];
+      }
+      else
+	{ return -1; }
+    }
+	
     // Currently only works for comparing integers although the operator is overloaded in Atelier B.
     get_operands (comparison, formula);
     if (operand2.empty ())
@@ -859,10 +879,6 @@ struct Bijection : public Relational {
 
 struct Set : public Definition {
   inline int operator () (xml_node set, Formula *formula) {
-    // Only POW (Z) || Z
-    if (set.child ("Id").attribute ("typref").as_int () > INTEGER)
-      { return -1; }
-  
     std::string id {set.child ("Id").attribute ("value").value ()};
 
     int var {formula->next_var};
@@ -936,12 +952,64 @@ struct BinaryPred : public PredGroup {
     return binary_pred;
   }
 };
-  
+
 struct ExpComparison : public PredGroup {
+protected:
+  inline int convexity_constraint (xml_node comparison) {
+    if (std::string {"="} != comparison.attribute ("op").value ()
+	|| std::string {"Id"} != comparison.first_child ().name ())
+      { return 0; }
+  
+    xml_node second_child {comparison.first_child ().next_sibling ()};
+
+    if (std::string {".."} == second_child.attribute ("op").value ()
+	&& std::string {"imin"} == second_child.first_child ().attribute ("op").value ()
+	&& std::string {"imax"} == second_child.first_child ().next_sibling ().attribute ("op").value ()) {
+      std::string value {comparison.first_child ().attribute ("value").value ()};
+      
+      if (std::ranges::all_of (second_child.children (),
+			       [&value] (auto &child) { return value == child.first_child ().attribute ("value").value (); }))
+	{ return 2; }
+      
+      return 1;
+    }
+    return 0;
+  }  
+
+public:
   inline int operator () (xml_node comparison, Formula *formula) {
     std::string op {comparison.attribute ("op").value ()};
     if (!formula->comparison_handlers.contains (op))
       { return -1; }
+
+    switch (convexity_constraint (comparison)) {
+    case 2: 
+      if (!formula->sets.contains ("TRUE")) {
+	int var {formula->next_var++};
+	formula->sets["TRUE"] = {var, 1};
+	formula->make_clause ({var});
+      }
+      return formula->sets["TRUE"][0];
+      
+    case 1:
+      xml_node first_child {comparison.first_child ()};
+      if (!formula->operand_handlers.contains (first_child.name ()))
+	{ return -1; }
+
+      Expression *handler {formula->operand_handlers[first_child.name ()]};
+      std::string first_child_name {(*handler) (first_child, formula)};
+      if (first_child_name.empty ())
+	{ return -1; }
+
+      xml_node second_child {first_child.next_sibling ().first_child ().first_child ()};
+      handler = formula->operand_handlers[second_child.name ()];
+      std::string second_child_name {(*handler) (second_child, formula)};
+      if (second_child_name.empty ())
+	{ return -1; }
+
+      SetSizer set_sizer {formula};
+      return set_sizer ({second_child_name}, {first_child_name}, 0);
+    }
 
     Definition *handler {formula->comparison_handlers[op]};
     return (*handler) (comparison, formula);
