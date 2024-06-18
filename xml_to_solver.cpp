@@ -349,21 +349,39 @@ struct UnaryExp : public Expression {
       std::string child_name {(*handler) (child, formula)};
       if (child_name.empty ())
 	{ return child_name; }
-      
-      if (std::string {"FIN"} == expression.attribute ("op").value ())
-	{ return "FIN(" + child_name + ")"; }
-      
-      else if (std::string {"card"} == expression.attribute ("op").value ())
-	{ return child_name; }
-      
-      else if (std::string {"-i"} == expression.attribute ("op").value ()) {
+
+      std::map<std::string, int> unary_operators
+	{{"imax", 0}, {"imin", 1}, {"card", 2}, {"FIN", 3}, {"-i", 4}, {"perm", 5}};
+      std::string op {expression.attribute ("op").value ()};
+
+      if (!unary_operators.contains (op))
+	{ return ""; }
+
+      switch (unary_operators[op]) {
+      case 0:
+      case 1:
+	op.insert (0, 1, '(');
+	op.append (")");
+	child_name = op + child_name;
+	if (!formula->sets.contains (child_name))
+	  { formula->construct_new_set (child_name, formula->upper_bound); }
+	return child_name;
+	
+      case 2:
+	return child_name;
+
+      case 3:
+	return "FIN(" + child_name + ')';
+
+      case 4:
 	if (child_name[0] == '-')
 	  { return child_name.substr (1); }
 	else if (child_name[0] >= '0' && child_name[0] <= '9')
 	  { return "-" + child_name; }
 	else {
 	  int size {formula->sets[child_name][1]};
-	  if (child_name.substr (0, 3) == "(-)") {
+	  constexpr int prefix {std::string {"(-)"}.length ()};
+	  if (child_name.substr (0, prefix) == "(-)") {
 	    child_name = child_name.substr (3);
 	    if (!formula->sets.contains (child_name))
 	      { formula->construct_new_set (child_name, size); }
@@ -375,7 +393,11 @@ struct UnaryExp : public Expression {
 	  }
 	  return child_name;
 	}
+
+      case 5:
+	return "(perm)" + child_name;
       }
+	    
     }
     return "";
   }
@@ -746,7 +768,22 @@ public:
     }
 
     if (!formula->predefined_literals.contains (operand2)) {
-      if (operand2.substr (0, std::string {"FIN("}.length ()) == "FIN(")
+      constexpr int perm {std::string {"(perm)"}.length ()};
+      constexpr int fin {std::string {"FIN("}.length ()};
+      
+      if (operand2.substr (0, perm) == "(perm)") {
+	operand2 = operand2.substr (perm);
+	
+	SetSizer set_sizer {formula};
+	int forwards {set_sizer ({operand1}, {operand2}, 0)};
+	int backwards {set_sizer ({operand2}, {operand1}, 0)};
+
+	for (int dir : {forwards, backwards})
+	  { formula->make_clause ({-binding_var, dir}); }
+	formula->make_clause ({-forwards, -backwards, binding_var});
+      }
+	
+      else if (operand2.substr (0, fin) == "FIN(")
 	{}
       else
 	{ non_empty_func (formula->sets[operand2][0], formula->sets[operand2][1], binding_var); }
