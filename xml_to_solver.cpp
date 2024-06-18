@@ -580,30 +580,34 @@ struct NaryExp : public Expression {
   inline std::string operator () (xml_node expression, Formula *formula) {
     if (std::string {"{"} == expression.attribute ("op").value ()) {
       std::set<std::string> elements;
+      int cardinality {0};
       for (xml_node child : expression.children ()) {
+	++cardinality;
+	
 	Expression *handler {formula->operand_handlers[child.name ()]};
 	std::string element {(*handler) (child, formula)};
-	if (element == "")
-	  { return element; }
+	// Consider size. In elements are unhandled, not important for now.
+	// if (element == "")
+	//   { return element; }
 	elements.insert (element);
       }
 
       int var {formula->next_var};
-      std::string set_name {"{"};
+      std::string set_name {"(" + std::to_string (cardinality) + "){"};
+      
       auto el_iter {elements.begin ()};
       set_name += *el_iter;
-      formula->make_clause ({var});
     
-      for (++el_iter; el_iter != elements.end (); ++el_iter) {
-	set_name += "," + *el_iter;
-	formula->make_clause ({++var});
-      }
+      for (++el_iter; el_iter != elements.end (); ++el_iter)
+	{ set_name += "," + *el_iter; }
       set_name += "}";
     
-      if (!formula->sets.contains (set_name)) 
-	{ formula->next_var = var + 1; }
-      else [[likely]] 
-	{ formula->construct_new_set (set_name, elements.size ()); }
+      if (!formula->sets.contains (set_name)) {
+	std::vector<int> vars (cardinality);
+	std::iota (vars.begin (), vars.end (), var);
+	formula->make_clause (std::move (vars), cardinality);
+	formula->next_var += cardinality;
+      }
 
       return set_name;
     }
