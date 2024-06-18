@@ -19,6 +19,7 @@ enum typref { POW_INTEGER, INTEGER };
 struct Expression;
 struct Definition;
 struct Relational;
+struct Dyadic;
 
 class Formula {
   std::map<std::string, std::array<int, 2>> sets;    // <"name", {first_var, size}
@@ -78,6 +79,10 @@ public:
       });
   }
   #endif
+
+  friend struct Dyadic;
+
+  friend struct SetDifference;
   
   friend struct Comparison;
   friend struct ElementOf;
@@ -272,8 +277,8 @@ struct Definition {
   virtual int operator () (xml_node, Formula *) = 0;
 };
 
-struct Comparison : public Definition {
-protected:
+struct Dyadic {
+  protected:
   std::string operand1;
   std::string operand2;
   
@@ -292,6 +297,8 @@ protected:
   }
 };
 
+struct Comparison : public Definition, public Dyadic {};
+
 struct Relational : public Comparison {
   std::string operand_as_str (int op) {
     switch (op) {
@@ -304,6 +311,27 @@ struct Relational : public Comparison {
     default:
       return "";
     }
+  }
+};
+
+struct SetOperation : public Expression, public Dyadic {};
+
+struct SetDifference : public SetOperation {
+  inline std::string operator () (xml_node difference, Formula *formula) {
+    get_operands (difference, formula);
+    if (operand2.empty ())
+      { return operand2; }
+
+    std::string name {"(-s)(" + operand1 + ',' + operand2 + ')'};
+
+    if (!formula->sets.contains (name)) {
+      formula->construct_new_set (name, formula->sets[operand1][1]);
+      
+      SetSizer set_sizer {formula};
+      set_sizer ({name}, {operand1}, 0);
+    }
+    
+    return name;
   }
 };
 
@@ -358,6 +386,13 @@ struct BinaryExp : public Expression {
       return name;
     }
 
+    if (op == "-s") {
+      SetDifference handler;
+      return handler (expression, formula);
+    }
+    else if (op == "/\\") ;
+    else if (op == "\\/") ;
+
     auto handle_operand
       { [formula] (xml_node operand) {
 	Expression *handler {formula->operand_handlers[operand.name ()]};
@@ -374,7 +409,7 @@ struct BinaryExp : public Expression {
 	  { return std::stoi (operand); }
 	return formula->sets[operand][1];
       }};
-
+    
     if (op == ".." || op.find ('i') == 1) {
       xml_node first_child {expression.first_child ()};
 
@@ -476,7 +511,7 @@ struct BinaryExp : public Expression {
 
 	  if (operand1 > operand2)
 	    { std::swap (operand1, operand2); }
-	  
+
 	  std::string name {"(*)(" + operand1 + ',' + operand2 + ')'};
 	  if (formula->sets.contains (name))
 	    { return name; }
@@ -684,7 +719,7 @@ public:
     return binding_var;
   }
 };
-
+	
 struct Equality : public Comparison {
   inline int operator () (xml_node comparison, Formula *formula) {
     // Currently only works for comparing integers although the operator is overloaded in Atelier B.
@@ -1109,7 +1144,7 @@ void Formula::make_clause (std::vector<int> &&W, std::vector<std::string> &&X, i
       }
       else
 	{ size += -coeff; }
-      
+
       pbs_body << coeff << " x" << x + j << ' ';
     }
   }
