@@ -9,16 +9,12 @@
 
 struct Constant {
   std::set<int> elements;
-  #ifdef THRESHOLD
-  double threshold {(THRESHOLD)};
-  #else
-  double threshold {0.6};
-  #endif
+  double threshold;
   int own_number;
   int set_count;
   
-  Constant (std::mt19937 &mt, int set_count, int own_number)
-    : own_number {own_number}, set_count {set_count} {
+  Constant (std::mt19937 &mt, int set_count, double threshold, int own_number)
+    : threshold {threshold}, own_number {own_number}, set_count {set_count} {
     while (add (mt, set_count));
   }
 
@@ -126,9 +122,12 @@ int main (int argc, char **argv) {
   std::string machine_name;
   unsigned int seed {0};
   int set_count {0};
+  double threshold {0.6};
 
   auto usage { [] () {
-    std::cerr << "Usage: ./rand_mch_gen -o <machine_name> -c <pos_number_of_sets> [-s <rand_num_seed>]\n";
+    std::cerr << "Usage: ./rand_mch_gen -o <machine_name> -c <pos_number_of_sets>\n"
+	      << "                      [-s <rand_num_seed>]\n"
+	      << "                      [-t <threshold>]\n";
     return 1;
   }};
   
@@ -143,6 +142,9 @@ int main (int argc, char **argv) {
 	break;
       case 'c':
 	set_count = std::stoi (argv[++i]);
+	break;
+      case 't':
+	threshold = std::stod (argv[++i]);
 	break;
       default:
 	return usage ();
@@ -163,7 +165,7 @@ int main (int argc, char **argv) {
   std::vector<Constant *> sets (set_count);
   
   for (int i {0}; i < set_count; ++i) 
-    { sets[i] = new Constant {rng, set_count, i}; }
+    { sets[i] = new Constant {rng, set_count, threshold, i}; }
   
   std::stringstream pog;
   pog << "// Set count: " << set_count
@@ -205,7 +207,6 @@ int main (int argc, char **argv) {
   std::ofstream machine {machine_name + ".mch"};
   machine << pog.str ();
 
-  std::cout << sets[0]->threshold << '\n';
   for (auto el : sets)
     { delete el; }
   
