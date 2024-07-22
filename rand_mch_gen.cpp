@@ -9,7 +9,11 @@
 
 struct Constant {
   std::set<int> elements;
+  #ifdef THRESHOLD
+  double threshold {(THRESHOLD)};
+  #else
   double threshold {0.6};
+  #endif
   int own_number;
   int set_count;
   
@@ -201,6 +205,7 @@ int main (int argc, char **argv) {
   std::ofstream machine {machine_name + ".mch"};
   machine << pog.str ();
 
+  std::cout << sets[0]->threshold << '\n';
   for (auto el : sets)
     { delete el; }
   
