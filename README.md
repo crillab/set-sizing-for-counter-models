@@ -14,6 +14,9 @@
   - `<stem>.pbo` is the pseudo-Boolean problem instance encoding the original POG file.
   - `<stem>.pb_solver_out` has the output of the pseudo-Boolean solver piped into it.
 
+### Run
+- ./set-sizing-for-counter-models -i `<input POG>` -k `<upper-bound on set size>
+
 ## Licensing
 
 This software has been developed for the project BLaSST. It is released under the terms of the GNU LGPL v3.0 license.
