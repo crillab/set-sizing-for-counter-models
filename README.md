@@ -15,7 +15,7 @@
   - `<stem>.pb_solver_out` has the output of the pseudo-Boolean solver piped into it.
 
 ### Run
-- ./set-sizing-for-counter-models -i `<input POG>` -k `<upper-bound on set size>
+- ./set-sizing-for-counter-models -i `<input POG>` -k `<upper-bound on set size>`
 
 ## Licensing
 
