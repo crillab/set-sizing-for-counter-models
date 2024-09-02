@@ -9,10 +9,10 @@
 ## Usage
 - As inputs, the path to a POG file and the positive, natural upper-bound for searching for set sizes must be given as arguments.
 - As outputs, if possible, there will be four files named according to the stem of the input POG.
-  - <stem>.abs_out lists the originally abstract sets followed immediately and most interestingly by the first propositional variable that represents one of its elements. Its elements' variables are contiguous.
-  - <stem>_concrete.pog is the new POG file instantiating the abstract sets of the input.
-  - <stem>.pbo is the pseudo-Boolean problem instance encoding the original POG file.
-  - <stem>.pb_solver_out has the output of the pseudo-Boolean solver piped into it.
+  - `<stem>.abs_out` lists the originally abstract sets followed immediately and most interestingly by the first propositional variable that represents one of its elements. Its elements' variables are contiguous.
+  - `<stem>_concrete.pog` is the new POG file instantiating the abstract sets of the input.
+  - `<stem>.pbo` is the pseudo-Boolean problem instance encoding the original POG file.
+  - `<stem>.pb_solver_out` has the output of the pseudo-Boolean solver piped into it.
 
 ## Licensing
 
