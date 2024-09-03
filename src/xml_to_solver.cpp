@@ -1491,8 +1491,10 @@ bool Formula::explore_context (xml_node proof_obligations) {
 	    return false;
 	  }
 	}
-	else
-	  { std::cerr << interior.name () << '\n'; }
+	else {
+	  std::cerr << interior.name () << '\n';
+	  return false;
+	}
       }
     }
   }
