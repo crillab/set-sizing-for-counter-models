@@ -1496,8 +1496,6 @@ bool Formula::explore_context (xml_node proof_obligations) {
     std::string name {definition.attribute ("name").value ()};
     if (std::string {"Define"} == definition.name ()
 	&& (name == "ctx"
-	    || name == "inv"
-	    || name.substr (name.length () - 3) == "ext"
 	    || name.substr (name.length () - 3) == "prp")) {
       for (xml_node interior : definition.children ()) {
 	if (definition_handlers.contains (interior.name ())) {
