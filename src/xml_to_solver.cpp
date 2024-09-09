@@ -232,7 +232,7 @@ public:
   }
 };
 
-std::string get_pb_file_name (char *pog_name, bool optimization) {
+std::string get_pb_file_name (const char *pog_name, bool optimization) {
   std::string read_in_file {pog_name};
   read_in_file = read_in_file.substr (read_in_file.rfind ('/', read_in_file.rfind ('/') - 1) + 1);
   std::ranges::replace (read_in_file, '/', '-');
@@ -451,7 +451,7 @@ struct SetDifference : public SetOperation {
       formula->construct_new_set (name, formula->sets[operand1]->size, POS);
       
       SetSizer set_sizer {formula};
-      set_sizer ({name}, {operand1}, 0);
+      formula->make_clause ({set_sizer ({name}, {operand1}, 0)});
     }
     
     return name;
@@ -475,7 +475,7 @@ struct Intersection : public SetOperation {
 
       SetSizer set_sizer {formula};
       for (auto &op : {operand1, operand2})
-	{ set_sizer ({name}, {op}, 0); }
+	{ formula->make_clause ({set_sizer ({name}, {op}, 0)}); }
     }
 
     return name;
@@ -499,7 +499,7 @@ struct Union : public SetOperation {
 
       SetSizer set_sizer {formula};
       for (auto &op : {operand1, operand2})
-	{ set_sizer ({op}, {name}, 0); }
+	{ formula->make_clause ({set_sizer ({op}, {name}, 0)}); }
     }
 
     return name;
@@ -678,8 +678,8 @@ struct BinaryExp : public Expression {
 	  formula->construct_new_set (name, size, POS);
 
 	  SetSizer set_sizer {formula};
-	  set_sizer ({name, operand1}, {operand2}, 0);
-	  set_sizer ({operand2}, {name, operand1}, 0);
+	  formula->make_clause ({set_sizer ({name, operand1}, {operand2}, 0)});
+	  formula->make_clause ({set_sizer ({operand2}, {name, operand1}, 0)});
 
 	  return name;
 	}
@@ -698,8 +698,8 @@ struct BinaryExp : public Expression {
 	  formula->construct_new_set (name, size);
 
 	  SetSizer set_sizer {formula};
-	  set_sizer ({name}, {operand1, operand2}, 0);
-	  set_sizer ({operand1, operand2}, {name}, 0);
+	  formula->make_clause ({set_sizer ({name}, {operand1, operand2}, 0)});
+	  formula->make_clause ({set_sizer ({operand1, operand2}, {name}, 0)});
 
 	  return name;
 	}
@@ -722,8 +722,8 @@ struct BinaryExp : public Expression {
 	  formula->construct_new_set (name, size);
 
 	  SetSizer set_sizer {formula};
-	  set_sizer ({name, operand2}, {operand1}, 0);
-	  set_sizer ({operand1}, {name, operand2}, 0);
+	  formula->make_clause ({set_sizer ({name, operand2}, {operand1}, 0)});
+	  formula->make_clause ({set_sizer ({operand1}, {name, operand2}, 0)});
 
 	  return name;
 	}
@@ -1443,10 +1443,10 @@ inline void Formula::construct_new_set (std::string &name, int size, uint8_t sig
     next_var = var + (size << 1);
 
 #ifdef AUX_MESSAGE
-    std::string message {"name non-negative"};
+    std::string message {name + " non-negative"};
     int non_neg {make_aux_var (message)};
 
-    message = "name non-positive";
+    message = name + " non-positive";
     int non_pos {make_aux_var (message)};
 
 #else
@@ -1460,7 +1460,7 @@ inline void Formula::construct_new_set (std::string &name, int size, uint8_t sig
 	std::vector<int> vec (region->size);
 	std::iota (vec.begin (), vec.end (), region->start);
 	for (int i : vec)
-	  { make_clause ({-selector, -i}, -1); }
+	  { make_clause ({-selector, -i}, 1); }
       }};
 
     if_empty (non_neg, new_region->neg);
@@ -1592,7 +1592,7 @@ namespace XML_TO_SOLVER {
 
 #ifdef AUX_MESSAGE
     formula->list_aux ();
-    formula->list_set ();
+    formula->list_sets ();
     formula->highlight_abstract_sets ();
 #endif
 
