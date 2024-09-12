@@ -4,7 +4,7 @@
 - In Makefile, three variables must be correctly set in order for this tool to work.
   - PUGIXML_SRC must be set to the location of the file pugixml.cpp.
   - PUGIXML_LIB must be set to the directory containing the other two source files of pugixml.
-  - PB_SOLVER must be set to the command for running the chosen pseudo-Boolean solver, or to the path to its executable.
+  - PB_SOLVER_PREFIX must be set to the command for running the chosen pseudo-Boolean solver, or to the path to its executable. If additional options are required in order for the solver to return a model, these too must be included in the string (with spaces escaped).
 
 ## Usage
 - As inputs, the path to a POG file and the positive, natural upper-bound for searching for set sizes must be given as arguments.
