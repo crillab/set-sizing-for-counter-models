@@ -1380,6 +1380,7 @@ struct NaryPred : public PredGroup {
 Formula::Formula (int k, std::string pb_name) 
   : upper_bound {k}, pb_name {pb_name},
     predefined_literals {"MAXINT", "MININT",
+			 "NATURAL", "INTEGER",
 			 "NAT", "NAT1", "INT",
 			 "BOOL"} {
   comparison_handlers[":"] = new ElementOf {};
