@@ -1013,6 +1013,10 @@ struct Equality : public Comparison {
     get_operands (comparison, formula);
     if (operand2.empty ())
       { return -1; }
+    if (formula->predefined_literals.contains (operand2)) {
+      std::cerr << "Equating " << operand1 << " with " << operand2 << ".\n";
+      return -1;
+    }
     auto check_for_literal { [] (std::string &name) {
       return name[0] == '-' || name[0] >= '0' && name[0] <= '9';
     }};
