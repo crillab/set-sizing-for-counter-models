@@ -21,7 +21,7 @@
 #define XML_TO_SOLVER_H
 
 namespace XML_TO_SOLVER {
-  bool run (const char *input_pog_file, int k, bool optimization);
+  bool run (const char *input_pog_file, int k, bool optimization, bool stop_for_big);
 }
 
 #endif

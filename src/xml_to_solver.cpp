@@ -40,6 +40,8 @@ using xml_node = const pugi::xml_node &;
 enum typref { POW_INTEGER, INTEGER };
 enum sign : uint8_t { UNSET, POS, NEG };
 
+bool stop_for_big {false};
+
 struct Expression;
 struct Definition;
 struct Relational;
@@ -1013,7 +1015,7 @@ struct Equality : public Comparison {
     get_operands (comparison, formula);
     if (operand2.empty ())
       { return -1; }
-    if (formula->predefined_literals.contains (operand2)) {
+if (stop_for_big && formula->predefined_literals.contains (operand2)) {
       std::cerr << "Equating " << operand1 << " with " << operand2 << ".\n";
       return -1;
     }
@@ -1576,7 +1578,9 @@ void Formula::make_clause (std::vector<int> &&W, std::vector<std::string> &&X, i
 }
 
 namespace XML_TO_SOLVER {
-  bool run (const char *input_pog, int k, bool optimization) {
+  bool run (const char *input_pog, int k, bool optimization, bool s_f_b) {
+    stop_for_big = s_f_b;
+    
     std::filesystem::path in_file {input_pog};
     std::filesystem::path out_file {in_file.stem ().string () 
 				    + (optimization ? ".pbo" : ".pbs")};

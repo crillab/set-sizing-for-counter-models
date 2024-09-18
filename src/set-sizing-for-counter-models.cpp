@@ -29,16 +29,20 @@
 
 int main (int argc, char **argv) {
   std::string help {"Usage: ./set-sizing-for-counter-models "
-		    "-i <input POG> -k <upper-bound on set sizes as positive nat>\n"};
+		    "-i <input POG> -k <upper-bound on set sizes as positive nat> "
+		    "[--stop-for-big]\n"};
   
   std::string input;
   int k;
   bool k_set {};
+  bool stop_for_big {};
 
   for (int i {1}; i < argc; ++i) {
     auto get_option_val { [argc, &argv] (int &i)
     { return ++i < argc ? argv[i] : ""; }};
-    
+
+    if (std::string {"--stop-for-big"} == argv[i])
+      { stop_for_big = true; continue; }
     if (std::string {"-i"} == argv[i]) 
       { input = get_option_val (i); }
     else if (std::string {"-k"} == argv[i]) {
@@ -65,8 +69,8 @@ int main (int argc, char **argv) {
     }};
 
   RunClock *clock {new RunClock {}};
-  
-  if (!XML_TO_SOLVER::run (input.c_str (), k, true)) {
+
+  if (!XML_TO_SOLVER::run (input.c_str (), k, true, stop_for_big)) {
     std::cerr << "\nFailed to encode to pseudo-Boolean problem instance.\n";
     return 1;
   }
