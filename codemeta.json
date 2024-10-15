@@ -48,7 +48,7 @@
         }
     ],
     "codeRepository": "https://github.com/crillab/set-sizing-for-counter-models",
-    "datePublished": "2024-10-27",
+    "datePublished": "2024-09-27",
     "description": "When possible, takes in an abstract B language machine as a POG file and returns another POG file wherein abstract sets have been replaced with concrete sets.",
     "license": "https://spdx.org/licenses/LGPL-3.0",
     "name": "set-sizing-for-counter-models",
