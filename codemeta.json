@@ -1,0 +1,60 @@
+{
+    "@context": "https://doi.org/10.5063/schema/codemeta-2.0",
+    "type": "SoftwareSourceCode",
+    "author": [
+        {
+            "id": "https://orcid.org/0009-0000-2545-6993",
+            "type": "Person",
+            "affiliation": {
+                "type": "Organization",
+                "name": "Univ. Artois, CNRS, UMR 8188, Centre de Recherche en Informatique de Lens (CRIL), F-62300 Lens, France"
+            },
+            "email": "crowley@cril.fr",
+            "familyName": "Crowley",
+            "givenName": "Daniel"
+        },
+        {
+            "id": "https://orcid.org/0000-0003-3221-9923",
+            "type": "Person",
+            "affiliation": {
+                "type": "Organization",
+                "name": "Univ. Artois, CNRS, UMR 8188, Centre de Recherche en Informatique de Lens (CRIL), F-62300 Lens, France"
+            },
+            "email": "leberre@cril.fr",
+            "familyName": "Le Berre",
+            "givenName": "Daniel"
+        },
+        {
+            "id": "https://orcid.org/0000-0002-9394-3897",
+            "type": "Person",
+            "affiliation": {
+                "type": "Organization",
+                "name": "Univ. Artois, CNRS, UMR 8188, Centre de Recherche en Informatique de Lens (CRIL), F-62300 Lens, France"
+            },
+            "email": "roussel@cril.fr",
+            "familyName": "Roussel",
+            "givenName": "Olivier"
+        },
+        {
+            "id": "https://orcid.org/0000-0003-0100-4428",
+            "type": "Person",
+            "affiliation": {
+                "type": "Organization",
+                "name": "Univ. Artois, CNRS, UMR 8188, Centre de Recherche en Informatique de Lens (CRIL), F-62300 Lens, France"
+            },
+            "email": "salhi@cril.fr",
+            "familyName": "Salhi",
+            "givenName": "Yakoub"
+        }
+    ],
+    "codeRepository": "https://github.com/crillab/set-sizing-for-counter-models",
+    "datePublished": "2024-10-27",
+    "description": "When possible, takes in an abstract B language machine as a POG file and returns another POG file wherein abstract sets have been replaced with concrete sets.",
+    "license": "https://spdx.org/licenses/LGPL-3.0",
+    "name": "set-sizing-for-counter-models",
+    "operatingSystem": "Linux",
+    "programmingLanguage": "C++",
+    "softwareRequirements": "C++20",
+    "version": "0.1",
+    "funding": "ANR-21-CE25-0010"
+}
